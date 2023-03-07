@@ -4,7 +4,7 @@ import countio
 import digitalio
 import busio
 
-import GPS
+from SilkStickProj import GPS
 import Menu
 
 Flags = {'BUTTON': False, 'D1': False, 'D2': False}

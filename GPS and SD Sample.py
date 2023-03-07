@@ -3,7 +3,8 @@ import busio
 import sdcardio
 import storage
 import os
-import GPS
+from SilkStickProj import GPS
+
 sdcard = sdcardio.SDCard(board.SPI(), board.D5)
 vfs = storage.VfsFat(sdcard)
 storage.mount(vfs, '/sd')
