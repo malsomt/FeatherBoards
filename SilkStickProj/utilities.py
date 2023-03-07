@@ -24,7 +24,8 @@ class LogFile:
                     for i in self._datafields:
                         header = header + i + ','
                     file.write(header)
-            except Exception:
+            except Exception as err:
+                print(err)
                 return False
             self.fileName = fn
             return True
@@ -37,3 +38,21 @@ class LogFile:
             return True
         else:
             return False
+
+    def addEntry(self, info):
+        """Receive Dictionary of log information and format it to a CSV"""
+        try:
+            logstring = info['ymd'] + ',' + info['hms'] + ',' + info['Row'] + ',' + info['Rng'] + ',' + \
+                        info['Lat'] + ', ' + info['Lon']
+            with open(self._filepath + '/' + self._fileName, 'a') as file:
+                file.write(logstring)
+        except OSError as oserr:  # Most likely no SD Card
+            print(oserr)
+            return False
+        self.entrycount = self.entrycount + 1  # increment the entry count manually
+        return True  # Return True if successful
+
+    def removeLastEntry(self):
+        """Attempt to remove the last line of the current csv file"""
+        pass
+

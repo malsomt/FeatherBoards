@@ -1,4 +1,8 @@
+import time
+
+import adafruit_pcf8523
 import board
+import busio
 
 import Menu
 from Peripherals import SelectWheel, CharacterDisplay, Button
@@ -7,6 +11,7 @@ import gc
 import sdcardio
 import storage
 import os
+import GPS
 from utilities import LogFile
 
 import json
@@ -14,6 +19,7 @@ import json
 # ---Global Setup---
 
 SystemInitialized = False
+rtcSink = False
 circuitPy = None
 state = 0
 state_return = 0
@@ -24,6 +30,7 @@ quickStrings = ['file', 'row', 'range', 'field', 'Rng', 'Row', 'Eng']
 jsonConfig = {'Raw_Upr': 1000, 'Raw_Lwr': 0, 'Eng_Upr': 15, 'Eng_Lwr': 0}
 newFileName = ''
 logger = LogFile()
+loggingData = {'ymd': '', 'hms': '', 'Row': '', 'Rng': '', 'Lat': '', 'Lon': ''}
 scrnMainMenu = MenuScreen('Main', navList)
 scrnDirList = None
 scrnNewLog = NewLog('New Log')
@@ -42,6 +49,10 @@ display = board.DISPLAY
 # seesaw is the pre-made firmware running the SAMD09U microcontroller used as the backbone for the rotary encoder board
 i2c = board.STEMMA_I2C()  # Use STEMMA or standard I2C if switching to the GPIO pins
 selectWheel = SelectWheel(i2c)
+rtc = adafruit_pcf8523.PCF8523(i2c)
+
+uart = busio.UART(board.TX, board.RX, baudrate=57600)
+gps = GPS.GPSParser()
 
 iRecordPB = None#Button('insert pin', pull=)
 iDeletePB = None#Button('insert pin', pull=)
@@ -60,11 +71,39 @@ except OSError:
 
 
 def inputs():
+    """Declare Global references below"""
     global selectWheel
     global display2
+    global iRecordPB
+    global iDeletePB
+    global gps
+    global loggingData
+    global uart
+    global rtc
+    global rtcSink
+    """-------"""
 
     # Calling instance as a function defaults to an internal cyclical scan function
-    selectWheel()
+    selectWheel(longPressTime=0.5)
+    iRecordPB(longPressTime=0.4)
+    iDeletePB(longPressTime=0.8)
+
+    uartData = uart.readline()
+    if uartData is not None:
+        uartData = ''.join([chr(b) for b in uartData])
+        "Parse GPS data until a new message is complete"
+        for char in uartData:
+            if gps.update(char) is not None:
+                "Update rtc clock on the first good GPS message timestamp of a bootup"
+                if not rtcSink:
+                    rtc.datetime = time.struct_time(("Insert Tuple to format string",))
+                    rtcSink = True
+                "Update the Dictionaries of Info"
+                t = rtc.datetime
+                loggingData['ymd'] = f'{t.tm_year}:{t.tm_mon}:{t.tm_mday}'
+                loggingData['hms'] = f'{t.tm_hour}:{t.tm_min}:{t.tm_sec}'
+                loggingData['Lat'] = gps.latitude
+                loggingData['Lon'] = gps.longitude
 
 
 def sequence():
@@ -86,6 +125,7 @@ def sequence():
     global selectedString
     global newFileName
     global logger
+    global loggingData
 
     # Start State Logic Control
 
@@ -217,34 +257,12 @@ def sequence():
     elif state == 1300:
         """ Create new .txt file with proper headers for .csv interpretation """
         if logger.CreateNewFile(newFileName):  # Returns True if successful
-            state = 1310
+            state = 4000
         else:
             # Something went wrong
             state = 999999999999
         # -___-___-___-___-
 
-    elif state == 1310:
-        """ Open up Running Log Display """
-        display.show(scrnRuntime.getDisplayGroup())
-        state = 1320
-        # -___-___-___-___-
-
-    elif state == 1320:
-        " Monitor the encoder wheel inputs for navigation "
-        "Monitor Record Buttons for info grabbing"
-        if selectWheel.up:  # Encoder CW
-            scrnRuntime.navCW()
-        elif selectWheel.dwn:  # Encoder CCW
-            scrnRuntime.navCCW()
-        if selectWheel.shortPress:
-            if scrnRuntime.getSelected() == 'GPS':
-                state = 2040  # Go to GPS Detail Screen
-            else:
-                state = 2020  # Go to Edit Mode
-        if selectWheel.longPress:
-            state = 0
-
-        # -___-___-___-___-
         """###### New_Log Screen Logic End ######"""
 
         """--------------------------------------"""
@@ -387,9 +405,89 @@ def sequence():
         scrnConfig.setEdit(False)
         state = 3010
         # -___-___-___-___-
+
+    elif state == 4000:
+        """ Open up Running Log Display """
+        display.show(scrnRuntime.getDisplayGroup())
+        state = 4010
+        # -___-___-___-___-
+
+    elif state == 4010:
+        " Monitor the encoder wheel inputs for navigation "
+        "Monitor Record Buttons for info grabbing"
+        if selectWheel.up:  # Encoder CW
+            scrnRuntime.navCW()
+        elif selectWheel.dwn:  # Encoder CCW
+            scrnRuntime.navCCW()
+        if selectWheel.shortPress:
+            if scrnRuntime.getSelected() == 'GPS':
+                state = 4040  # Go to GPS Detail Screen
+            else:
+                state = 4020  # Go to Edit Mode
+        if selectWheel.longPress:
+            state = 0
+        if iRecordPB.longPress:
+            state = 4200
+        elif iDeletePB.longPress:
+            state = 4300
+        # -___-___-___-___-
+
+    elif state == 4020:
+        " Set the menu screen to highlight selection "
+        scrnRuntime.setEdit(True)
+        state = 4030
+        # -___-___-___-___-
+
+    elif state == 4030:
+        " Monitor the encoder wheel inputs for editing values "
+        if selectWheel.up:  # Encoder CW
+            scrnRuntime.editCW()
+        elif selectWheel.dwn:  # Encoder CCW
+            scrnRuntime.editCCW()
+        if selectWheel.shortPress:
+            state = 4100
+        if selectWheel.longPress:
+            pass
+        # -___-___-___-___-
+
+    elif state == 4040:
+        " Bring up GPS Details Screen"
+        gc.collect()
+        display.show(scrnRuntime.getDisplayGroup())
+        state = 4050
+        # -___-___-___-___-
+
+    elif state == 4050:
+        if selectWheel.shortPress or selectWheel.longPress:
+            state = 4000
+        # -___-___-___-___-
+
+    elif state == 4100:
+        " Set update Done "
+        scrnRuntime.setEdit(False)
+        state = 4010
+        # -___-___-___-___-
+
+    elif state == 4200:
+        " Sample the current entry  "
+        if logger.addEntry(loggingData):
+            state = 4210
+        else:
+            scrnSplashScreen.setDisplayText('Error Occurred During Write to Log')
+            state_return = 4000
+            state = 9000
+        # -___-___-___-___-
+
+    elif state == 4210:
+        " Do something for Confirmation "
+        """"Make a beep, flash a light...do something"""
+        state = 4010
+        # -___-___-___-___-
+
     elif state == 9000:
         " Show Splash screen and message"
         display.show(scrnSplashScreen.getDisplayGroup())
+        state = 9010
         # -___-___-___-___-
 
     elif state == 9010:
