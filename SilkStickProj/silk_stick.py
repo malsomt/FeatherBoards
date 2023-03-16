@@ -13,6 +13,7 @@ import storage
 import os
 import GPS
 from utilities import LogFile
+from digitalio import Pull
 
 import json
 
@@ -54,8 +55,8 @@ rtc = adafruit_pcf8523.PCF8523(i2c)
 uart = busio.UART(board.TX, board.RX, baudrate=57600)
 gps = GPS.GPSParser()
 
-iRecordPB = None#Button('insert pin', pull=)
-iDeletePB = None#Button('insert pin', pull=)
+btnGreen = Button(board.A3, pull=Pull.DOWN)
+btnRed = Button(board.A2, pull=Pull.DOWN)
 
 display2 = CharacterDisplay(i2c)
 display2.message = 123.4, 1
@@ -74,8 +75,8 @@ def inputs():
     """Declare Global references below"""
     global selectWheel
     global display2
-    global iRecordPB
-    global iDeletePB
+    global btnGreen
+    global btnRed
     global gps
     global loggingData
     global uart
@@ -85,8 +86,9 @@ def inputs():
 
     # Calling instance as a function defaults to an internal cyclical scan function
     selectWheel(longPressTime=0.5)
-    iRecordPB(longPressTime=0.4)
-    iDeletePB(longPressTime=0.8)
+    btnGreen(longPressTime=0.4)
+    btnRed(longPressTime=0.8)
+    """
 
     uartData = uart.readline()
     if uartData is not None:
@@ -104,6 +106,7 @@ def inputs():
                 loggingData['hms'] = f'{t.tm_hour}:{t.tm_min}:{t.tm_sec}'
                 loggingData['Lat'] = gps.latitude
                 loggingData['Lon'] = gps.longitude
+    """
 
 
 def sequence():
@@ -111,8 +114,8 @@ def sequence():
     " Alias local vars to global scope "
     global state
     global state_return
-    global iRecordPB
-    global iDeletePB
+    global btnGreen
+    global btnRed
     global selectWheel
     global scrnMainMenu
     global scrnDirList
@@ -280,14 +283,22 @@ def sequence():
     elif state == 1510:
         "Monitor Navigation Inputs"
         if selectWheel.up:  # Encoder CCW
-            scrnMainMenu.navCCW()
+            scrnDirList.navCCW()
         elif selectWheel.dwn:  # Encoder CW
-            scrnMainMenu.navCW()
+            scrnDirList.navCW()
         if selectWheel.shortPress:  # Encoder Pressed
             selectedFile = scrnDirList.getSelected()
             state = 1520
         elif selectWheel.longPress:
             state = 0
+        # -___-___-___-___-
+
+    elif state == 1520:
+        logger.fileName = selectedFile
+        if logger.fileName == selectedFile:
+            state = 4000
+        else:
+            state = 999999
         # -___-___-___-___-
 
         """###### Continue_Log Screen END ######"""
@@ -408,6 +419,7 @@ def sequence():
 
     elif state == 4000:
         """ Open up Running Log Display """
+        scrnRuntime.items = {'File': logger.fileName, 'Entry': logger.entrycount}  # Update FileName
         display.show(scrnRuntime.getDisplayGroup())
         state = 4010
         # -___-___-___-___-
@@ -426,9 +438,9 @@ def sequence():
                 state = 4020  # Go to Edit Mode
         if selectWheel.longPress:
             state = 0
-        if iRecordPB.longPress:
+        if btnGreen.longPress:
             state = 4200
-        elif iDeletePB.longPress:
+        elif btnRed.longPress:
             state = 4300
         # -___-___-___-___-
 
@@ -494,7 +506,7 @@ def sequence():
         " Monitor common inputs to move to next screen"
         if selectWheel.shortPress or selectWheel.longPress:
             state = state_return
-        if iRecordPB or iDeletePB:
+        if btnGreen or btnRed:
             state = state_return
 
 

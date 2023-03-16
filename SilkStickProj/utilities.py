@@ -19,14 +19,11 @@ class LogFile:
     def CreateNewFile(self, fn):
         if self._checkFormat(fn):
             filename = self._filepath + '/' + fn
-            try:
-                with open(filename) as file:
-                    for i in self._datafields:
-                        header = header + i + ','
-                    file.write(header)
-            except Exception as err:
-                print(err)
-                return False
+            with open(filename, 'x') as file:
+                header = ''
+                for i in self._datafields:
+                    header = header + i + ','
+                file.write(header)
             self.fileName = fn
             return True
         else:
@@ -42,8 +39,8 @@ class LogFile:
     def addEntry(self, info):
         """Receive Dictionary of log information and format it to a CSV"""
         try:
-            logstring = info['ymd'] + ',' + info['hms'] + ',' + info['Row'] + ',' + info['Rng'] + ',' + \
-                        info['Lat'] + ', ' + info['Lon']
+            logstring = info['ymd'] + ',' + info['hms'] + ',' + info['Row'] + ',' + info['Rng'] + ',' +\
+                    info['Lat'] + ', ' + info['Lon']
             with open(self._filepath + '/' + self._fileName, 'a') as file:
                 file.write(logstring)
         except OSError as oserr:  # Most likely no SD Card
