@@ -1,3 +1,6 @@
+import time
+
+
 class LogFile:
     def __init__(self):
         self._filepath = '/sd'
@@ -53,3 +56,72 @@ class LogFile:
         """Attempt to remove the last line of the current csv file"""
         pass
 
+
+class Timer:
+    """Create a PLC type timer resembling a TON"""
+    def __init__(self):
+        self._EN = False  # enable
+        self._DN = False  # done
+        self._TT = False  # timer timing
+        self._ACC = 0.0  # accumulated time
+        self._PRE = 0
+        self._start_time = 0.0
+        self.__initialized = True
+
+    def __call__(self, *args, **kwargs):
+        self._scan(*args, **kwargs)
+        self._EN = False  # cyclically reset EN for automatic reset
+
+    def _scan(self):
+        if self._EN and not self._DN:  # Is timer enabled
+            self.__initialized = False
+            if not self._TT:
+                self._start_time = time.monotonic()
+                self._TT = True
+            self._ACC = time.monotonic() - self._start_time
+            if self._ACC >= self._PRE:
+                self._DN = True
+                self._TT = False
+
+        elif self._EN and self._DN:
+            pass  # Do nothing to maintain info
+
+        else:
+            if not self.__initialized:
+                self.__init__()  # reset all
+
+    @property
+    def EN(self):
+        return self._EN
+
+    @EN.setter
+    def EN(self, flag):
+        if isinstance(flag, bool):
+            self._EN = flag
+        else:
+            raise TypeError("Timer 'EN' must be of type bool")
+
+    @property
+    def DN(self):
+        return self._DN
+
+    @property
+    def TT(self):
+        return self._TT
+
+    @property
+    def ACC(self):
+        return self._ACC
+
+    @property
+    def PRE(self):
+        return self._PRE
+
+    @PRE.setter
+    def PRE(self, pre):
+        if isinstance(pre, int):
+            self._PRE = float(pre)
+        elif isinstance(pre, float):
+            self._PRE = pre
+        else:
+            raise TypeError("PRE must be a float of seconds.")

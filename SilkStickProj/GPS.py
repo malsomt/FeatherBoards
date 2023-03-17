@@ -36,7 +36,7 @@ class GPSParser(object):
         # Data From Sentences
         # Time
         self._timestamp = ['', '', '']
-        self.date = [0, 0, 0]
+        self._datestamp = ['', '', '']
         self.utc_string = ''
 
         # Position/Motion
@@ -70,9 +70,16 @@ class GPSParser(object):
 
     @property
     def timestamp(self):
-        return str(self._timestamp)
+        """Hour, Min, Sec"""
+        return self._timestamp
 
-    def unsupported(self):
+    @property
+    def datestamp(self):
+        """Day, Month , Year"""
+        return self._datestamp
+
+    @staticmethod
+    def unsupported():
         return False
 
     def gpgga(self):
@@ -154,6 +161,33 @@ class GPSParser(object):
         self.fix_stat = fix_stat
         return True
 
+    def gpzda(self):
+        try:
+            # UTC Timestamp
+            utc_string = self.gps_segments[1]
+
+            # Skip timestamp if receiver doesn't have one yet
+            if utc_string:
+                hours = (str(utc_string[0:2]))
+                minutes = str(utc_string[2:4])
+                seconds = str(utc_string[4:])
+            else:
+                hours = '0'
+                minutes = '0'
+                seconds = '0.0'
+
+            day = self.gps_segments[2]
+            month = self.gps_segments[3]
+            year = self.gps_segments[4]
+
+        except (ValueError, IndexError):
+            print('Failed to Parse ZDA')
+            return False
+
+        self._timestamp = [hours, minutes, seconds]
+        self._datestamp = [day, month, year]
+        return True
+
     def new_sentence(self):
         """Adjust Object Flags in Preparation for a New Sentence"""
         self.gps_segments = ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '']
@@ -167,7 +201,7 @@ class GPSParser(object):
         """Process a new input char and updates GPS object if necessary based on special characters ('$', ',', '*')
         Function builds a list of received string that are validated by CRC prior to parsing by the appropriate
         sentence function. Returns sentence type on successful parse, None otherwise"""
-        global t4
+
         valid_sentence = False
 
         # Validate new_char is a printable char
@@ -242,5 +276,6 @@ class GPSParser(object):
                            'GPGLL': unsupported, 'GLGLL': unsupported,
                            'GNGGA': gpgga, 'GNRMC': unsupported,
                            'GNVTG': unsupported, 'GNGLL': unsupported,
-                           'GNGSA': unsupported
+                           'GNGSA': unsupported, 'GNZDA': gpzda,
+                           'GPZDA': gpzda, 'GLZDA': gpzda
                            }

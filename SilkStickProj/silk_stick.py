@@ -13,7 +13,7 @@ import sdcardio
 import storage
 import os
 import GPS
-from utilities import LogFile
+from utilities import LogFile, Timer
 from digitalio import Pull
 
 import json
@@ -21,9 +21,10 @@ import json
 # ---Global Setup---
 
 SystemInitialized = False
-rtcSink = False
+enableGPS = False
+rtcSink = True
 circuitPy = None
-state = 0
+state = 100000  # Start into boot checks
 state_return = 0
 selectedMenu = ''
 selectedFile = ''
@@ -42,6 +43,8 @@ scrnConfig = Config('Config', jsonConfig)
 scrnRuntime = Runtime('Runtime')
 scrnSplashScreen = SplashScreen('SplashScreen')
 
+Timer1 = Timer()  # Create a global timer for simple delays
+
 selectedString = ''
 display = board.DISPLAY
 # seesaw is the pre-made firmware running the SAMD09U microcontroller used as the backbone for the rotary encoder board
@@ -51,7 +54,7 @@ rtc = adafruit_pcf8523.PCF8523(i2c)
 #battery_monitor = LC709203F(i2c)
 #battery_monitor.pack_size = PackSize.MAH3000
 
-uart = busio.UART(board.TX, board.RX, baudrate=57600)
+uart = busio.UART(board.TX, board.RX, baudrate=115200)
 gps = GPS.GPSParser()
 
 btnGreen = Button(board.A3, pull=Pull.DOWN)
@@ -81,31 +84,41 @@ def inputs():
     global uart
     global rtc
     global rtcSink
+    global enableGPS
+    global Timer1
     """-------"""
-
+    """------Discrete Inputs------"""
     # Calling instance as a function defaults to an internal cyclical scan function
     selectWheel(longPressTime=0.5)
     btnGreen(longPressTime=0.4)
     btnRed(longPressTime=0.8)
-    """
 
-    uartData = uart.readline()
-    if uartData is not None:
-        uartData = ''.join([chr(b) for b in uartData])
-        "Parse GPS data until a new message is complete"
-        for char in uartData:
-            if gps.update(char) is not None:
-                "Update rtc clock on the first good GPS message timestamp of a bootup"
-                if not rtcSink:
-                    rtc.datetime = time.struct_time(("Insert Tuple to format string",))
-                    rtcSink = True
-                "Update the Dictionaries of Info"
-                t = rtc.datetime
-                loggingData['ymd'] = f'{t.tm_year}:{t.tm_mon}:{t.tm_mday}'
-                loggingData['hms'] = f'{t.tm_hour}:{t.tm_min}:{t.tm_sec}'
-                loggingData['Lat'] = gps.latitude
-                loggingData['Lon'] = gps.longitude
-    """
+    """------Timers------"""
+    Timer1()
+    """------Gps Receiver Input------"""
+
+    if enableGPS:
+        uartData = uart.read(16)
+        if uartData is not None:
+            uartData = ''.join([chr(b) for b in uartData])
+            "Parse GPS data until a new message is complete"
+            for char in uartData:
+                result = gps.update(char)
+                if result is not None and result == 'GNZDA':
+                    "Update rtc clock on the first good GPS ZDA timestamp after bootup"
+                    if rtcSink:
+                        # year, mon, date, hour, min, sec, wday, yday, isdst
+                        rtc.datetime = time.struct_time((int(gps.datestamp[2]), int(gps.datestamp[1]),
+                                                         int(gps.datestamp[0]), int(gps.timestamp[0]),
+                                                         int(gps.timestamp[1]), int(gps.timestamp[2][:2]), 0, -1, -1))
+                        rtcSink = False
+
+    "Update the Dictionaries logger Info"
+    t = rtc.datetime
+    loggingData['ymd'] = f'{t.tm_year}:{t.tm_mon}:{t.tm_mday}'
+    loggingData['hms'] = f'{t.tm_hour}:{t.tm_min}:{t.tm_sec}'
+    loggingData['Lat'] = gps.latitude if enableGPS else ''
+    loggingData['Lon'] = gps.longitude if enableGPS else ''
 
 
 def sequence():
@@ -128,6 +141,7 @@ def sequence():
     global newFileName
     global logger
     global loggingData
+    global Timer1
 
     # Start State Logic Control
 
@@ -522,6 +536,24 @@ def sequence():
             state = state_return
         if btnGreen.shortPress or btnRed.shortPress:
             state = state_return
+        # -___-___-___-___-
+
+    elif state == 100000:
+        "Start into this state from a restart, check GPS and other inputs to ensure function"
+        print(f"Checking for GPS Device...")
+        enableGPS = True
+        state = 100010
+        # -___-___-___-___-
+
+    elif state == 100010:
+        "Wait for serial log data to update"
+        Timer1.PRE = 3
+        Timer1.EN = True  # Hold Timer True to Time
+        """CHeck for GPS signals before the Timer1.DN turns on"""
+        print(Timer1.ACC)
+        if Timer1.DN:
+            state = 0
+        # -___-___-___-___-
 
 
 def main():
