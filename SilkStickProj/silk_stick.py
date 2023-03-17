@@ -3,6 +3,7 @@ import time
 import adafruit_pcf8523
 import board
 import busio
+from adafruit_lc709203f import LC709203F, PackSize
 
 import Menu
 from Peripherals import SelectWheel, CharacterDisplay, Button
@@ -26,12 +27,13 @@ state = 0
 state_return = 0
 selectedMenu = ''
 selectedFile = ''
-navList = ['New Log', 'Continue Log', 'No Log', 'Config']
+navList = ['New Log', 'Continue Log', 'No Log', 'Config', 'Battery']
 quickStrings = ['file', 'row', 'range', 'field', 'Rng', 'Row', 'Eng']
 jsonConfig = {'Raw_Upr': 1000, 'Raw_Lwr': 0, 'Eng_Upr': 15, 'Eng_Lwr': 0}
 newFileName = ''
 logger = LogFile()
 loggingData = {'ymd': '', 'hms': '', 'Row': '', 'Rng': '', 'Lat': '', 'Lon': ''}
+
 scrnMainMenu = MenuScreen('Main', navList)
 scrnDirList = None
 scrnNewLog = NewLog('New Log')
@@ -39,11 +41,6 @@ scrnStrInsert = MenuScreen('String Insert', quickStrings)
 scrnConfig = Config('Config', jsonConfig)
 scrnRuntime = Runtime('Runtime')
 scrnSplashScreen = SplashScreen('SplashScreen')
-"""
-contLog = ContinueLog(navList[1])
-noLog = NoLog(navList[2])
-"""
-
 
 selectedString = ''
 display = board.DISPLAY
@@ -51,6 +48,8 @@ display = board.DISPLAY
 i2c = board.STEMMA_I2C()  # Use STEMMA or standard I2C if switching to the GPIO pins
 selectWheel = SelectWheel(i2c)
 rtc = adafruit_pcf8523.PCF8523(i2c)
+#battery_monitor = LC709203F(i2c)
+#battery_monitor.pack_size = PackSize.MAH3000
 
 uart = busio.UART(board.TX, board.RX, baudrate=57600)
 gps = GPS.GPSParser()
@@ -169,7 +168,22 @@ def sequence():
 
         elif selectedMenu == 'Config':  # Config
             state = 3000
+
+        elif selectedMenu == 'Battery':  # Get Battery Info
+            state = 30
         # -___-___-___-___-
+
+        if state == 30:
+            " Set to Display Battery Info on Splash Screen "
+            """
+            displaytext1 = "Battery Percent: {:.2f} %".format(battery_monitor.cell_percent)
+            displaytext2 = "Battery Voltage: {:.2f} V".format(battery_monitor.cell_voltage)
+            scrnSplashScreen.setDisplayText(displaytext1 + '\n' + displaytext2, Menu.YEL)
+            """
+            scrnSplashScreen.setDisplayText('Feature is currently unavailable...', Menu.YEL)
+            state_return = 0
+            state = 9000
+            # -___-___-___-___-
         """###### Main Menu Logic END ######"""
 
         """--------------------------------------"""
@@ -506,7 +520,7 @@ def sequence():
         " Monitor common inputs to move to next screen"
         if selectWheel.shortPress or selectWheel.longPress:
             state = state_return
-        if btnGreen or btnRed:
+        if btnGreen.shortPress or btnRed.shortPress:
             state = state_return
 
 

@@ -25,7 +25,22 @@ class SplashScreen:
     def _buildDisplay(self):
         self.displayItems = displayio.Group()
         self.displayItems.append(label.Label(font=terminalio.FONT, text='', scale=2,
-                                             anchor_point=(0.5, 0.5), anchored_position=(120, 67),
+                                             anchor_point=(0.5, 0.5), anchored_position=(120, 15),
+                                             background_color=self.defaultBackgroundColor,
+                                             color=self.defaultTextColor, padding_left=2))
+
+        self.displayItems.append(label.Label(font=terminalio.FONT, text='', scale=2,
+                                             anchor_point=(0.5, 0.5), anchored_position=(120, 40),
+                                             background_color=self.defaultBackgroundColor,
+                                             color=self.defaultTextColor, padding_left=2))
+
+        self.displayItems.append(label.Label(font=terminalio.FONT, text='', scale=2,
+                                             anchor_point=(0.5, 0.5), anchored_position=(120, 65),
+                                             background_color=self.defaultBackgroundColor,
+                                             color=self.defaultTextColor, padding_left=2))
+
+        self.displayItems.append(label.Label(font=terminalio.FONT, text='', scale=2,
+                                             anchor_point=(0.5, 0.5), anchored_position=(120, 90),
                                              background_color=self.defaultBackgroundColor,
                                              color=self.defaultTextColor, padding_left=2))
 
@@ -36,7 +51,27 @@ class SplashScreen:
     def setDisplayText(self, text, color=None, bgcolor=None):
         color = color if color is not None else self.defaultTextColor
         bgcolor = bgcolor if bgcolor is not None else self.defaultTextColor
-        self.displayItems[0].text, self.displayItems[0].color, self.displayItems[0].bgcolor = text, color, bgcolor
+        textList = str.split(text, ' ')
+        line0 = ''
+        line1 = ''
+        line2 = ''
+        line3 = ''
+        for word in textList:
+            if len(line0) + len(word) < 18:
+                line0 = line0 + word + ' '
+            elif len(line1) + len(word) < 18:
+                line1 = line1 + word + ' '
+            elif len(line2) + len(word) < 18:
+                line2 = line2 + word + ' '
+            else:
+                line3 = line3 + word + ' '
+
+        self.displayItems[0].text, self.displayItems[1].text, self.displayItems[2].text, self.displayItems[3].text = \
+            line0, line1, line2, line3
+        self.displayItems[0].color, self.displayItems[1].color, self.displayItems[2].color, self.displayItems[3].color =\
+            color, color, color, color
+        self.displayItems[0].bgcolor, self.displayItems[1].bgcolor, self.displayItems[2].bgcolor,\
+        self.displayItems[3].bgcolor = bgcolor, bgcolor, bgcolor, bgcolor
 
     def getDisplayGroup(self):
         return self.displayItems
