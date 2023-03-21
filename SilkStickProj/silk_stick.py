@@ -1,30 +1,48 @@
-import time
+"""
+Silk Stick Main Entry Code
+Author: Tyler Malsom
+Date: 05/2023
+Overview: Software to operate the "Silk Stick" apparatus that utilizes various inputs to measure height in conjunction
+with relevant information such as GPS and manual data input from operator.
+Scan Structure operate under principal
+Init --> Input --> Sequence
+           ^----------v
 
+Most variables will be globally scoped to the controller to maintain operations
+ as this code will operate single threaded.
+
+"""
+
+
+import time
 import adafruit_pcf8523
 import board
 import busio
 from adafruit_lc709203f import LC709203F, PackSize
-
 import Menu
-from Peripherals import SelectWheel, CharacterDisplay, Button
+from Peripherals import SelectWheel, CharacterDisplay, Button, StringPot
 from Menu import MenuScreen, NewLog, Config, Runtime, SplashScreen
 import gc
 import sdcardio
 import storage
-import os
+import os, os.path
 import GPS
-from utilities import LogFile, Timer
+from utilities import LogFile, Timer, Scaling, printInline
 from digitalio import Pull
 
 import json
 
-# ---Global Setup---
+# ---CONSTANTS---
+MAIN = 0
+SPLASH = 9000
+GPSCHECK = 10000
 
+# ---Global Setup---
 SystemInitialized = False
 enableGPS = False
 rtcSink = True
 circuitPy = None
-state = 100000  # Start into boot checks
+state = 0
 state_return = 0
 selectedMenu = ''
 selectedFile = ''
@@ -33,7 +51,7 @@ quickStrings = ['file', 'row', 'range', 'field', 'Rng', 'Row', 'Eng']
 jsonConfig = {'Raw_Upr': 1000, 'Raw_Lwr': 0, 'Eng_Upr': 15, 'Eng_Lwr': 0}
 newFileName = ''
 logger = LogFile()
-loggingData = {'ymd': '', 'hms': '', 'Row': '', 'Rng': '', 'Lat': '', 'Lon': ''}
+loggingData = {'ymd': '', 'hms': '', 'Row': 0, 'Rng': 0, 'Lat': '', 'Lon': ''}
 
 scrnMainMenu = MenuScreen('Main', navList)
 scrnDirList = None
@@ -42,8 +60,11 @@ scrnStrInsert = MenuScreen('String Insert', quickStrings)
 scrnConfig = Config('Config', jsonConfig)
 scrnRuntime = Runtime('Runtime')
 scrnSplashScreen = SplashScreen('SplashScreen')
+scrnSplashNoAck = SplashScreen('Splash No Ack', ack=False)
 
 Timer1 = Timer()  # Create a global timer for simple delays
+
+Scaling = Scaling()  # Instantiate the scaling block
 
 selectedString = ''
 display = board.DISPLAY
@@ -54,11 +75,12 @@ rtc = adafruit_pcf8523.PCF8523(i2c)
 #battery_monitor = LC709203F(i2c)
 #battery_monitor.pack_size = PackSize.MAH3000
 
-uart = busio.UART(board.TX, board.RX, baudrate=115200)
+uart = busio.UART(board.TX, board.RX, baudrate=115200, timeout=0.1)
 gps = GPS.GPSParser()
 
 btnGreen = Button(board.A3, pull=Pull.DOWN)
 btnRed = Button(board.A2, pull=Pull.DOWN)
+stringPot = StringPot(board.A0)
 
 display2 = CharacterDisplay(i2c)
 display2.message = 123.4, 1
@@ -71,9 +93,22 @@ try:
 except OSError:
     print("No SD Card on SPI Bus...")
     sdcard = None
+"""
+if sdcard is not None:
+    if os('/sd/config.json'):
+        try:
+            with open('/sd/config.json') as file:         
+                jsonConfig = json.loads(file)
+        except OSError:
+            
+            Use Os.stat to get file info
+"""
+
+
 
 
 def inputs():
+    """Input routine used for any cyclical scanning of I/O"""
     """Declare Global references below"""
     global selectWheel
     global display2
@@ -86,6 +121,7 @@ def inputs():
     global rtcSink
     global enableGPS
     global Timer1
+    global stringPot
     """-------"""
     """------Discrete Inputs------"""
     # Calling instance as a function defaults to an internal cyclical scan function
@@ -94,7 +130,7 @@ def inputs():
     btnRed(longPressTime=0.8)
 
     """------Timers------"""
-    Timer1()
+    Timer1()  # Cyclically scanned - Interface with .EN and .PRE similar to PLC
     """------Gps Receiver Input------"""
 
     if enableGPS:
@@ -134,6 +170,7 @@ def sequence():
     global scrnNewLog
     global scrnStrInsert
     global scrnSplashScreen
+    global scrnSplashNoAck
     global display
     global selectedMenu
     global selectedFile
@@ -142,6 +179,8 @@ def sequence():
     global logger
     global loggingData
     global Timer1
+    global enableGPS
+    global gps_sentenceCount
 
     # Start State Logic Control
 
@@ -324,7 +363,8 @@ def sequence():
     elif state == 1520:
         logger.fileName = selectedFile
         if logger.fileName == selectedFile:
-            state = 4000
+            state_return = 4000
+            state = 10000
         else:
             state = 999999
         # -___-___-___-___-
@@ -447,14 +487,19 @@ def sequence():
 
     elif state == 4000:
         """ Open up Running Log Display """
-        scrnRuntime.items = {'File': logger.fileName, 'Entry': logger.entrycount}  # Update FileName
+        scrnRuntime.items = {'File': logger.fileName, 'Entry': logger.entryCount}  # Update FileName
         display.show(scrnRuntime.getDisplayGroup())
+        gc.collect()
         state = 4010
         # -___-___-___-___-
 
     elif state == 4010:
+        "Cyclically update displayed Info"
+        if loggingData['Lat'] != scrnRuntime.items['Lat'] or loggingData['Lon'] != scrnRuntime.items['Lon']:
+            scrnRuntime.items = {'Lat': loggingData['Lat'], 'Lon': loggingData['Lon']}
+
         " Monitor the encoder wheel inputs for navigation "
-        "Monitor Record Buttons for info grabbing"
+        " Monitor Record Buttons for info grabbing"
         if selectWheel.up:  # Encoder CW
             scrnRuntime.navCW()
         elif selectWheel.dwn:  # Encoder CCW
@@ -466,7 +511,7 @@ def sequence():
                 state = 4020  # Go to Edit Mode
         if selectWheel.longPress:
             state = 0
-        if btnGreen.longPress:
+        if btnGreen.shortPress:
             state = 4200
         elif btnRed.longPress:
             state = 4300
@@ -498,19 +543,23 @@ def sequence():
         # -___-___-___-___-
 
     elif state == 4050:
-        if selectWheel.shortPress or selectWheel.longPress:
-            state = 4000
+        pass
+        """if selectWheel.shortPress or selectWheel.longPress:"""
+        state = 4000
         # -___-___-___-___-
 
     elif state == 4100:
         " Set update Done "
         scrnRuntime.setEdit(False)
+        loggingData['Rng'] = scrnRuntime.items['Rng']
+        loggingData['Row'] = scrnRuntime.items['Row']
         state = 4010
         # -___-___-___-___-
 
     elif state == 4200:
         " Sample the current entry  "
         if logger.addEntry(loggingData):
+            scrnRuntime.items = {'Entry': logger.entryCount}
             state = 4210
         else:
             scrnSplashScreen.setDisplayText('Error Occurred During Write to Log')
@@ -538,27 +587,41 @@ def sequence():
             state = state_return
         # -___-___-___-___-
 
-    elif state == 100000:
+    elif state == 10000:
         "Start into this state from a restart, check GPS and other inputs to ensure function"
         print(f"Checking for GPS Device...")
         enableGPS = True
-        state = 100010
+        gps_sentenceCount = gps.parsed_sentences
+        display.show(scrnSplashNoAck.getDisplayGroup())
+        state = 10010
         # -___-___-___-___-
 
-    elif state == 100010:
+    elif state == 10010:
         "Wait for serial log data to update"
-        Timer1.PRE = 3
+        Timer1.PRE = 10
         Timer1.EN = True  # Hold Timer True to Time
-        """CHeck for GPS signals before the Timer1.DN turns on"""
-        print(Timer1.ACC)
+        """Check for GPS signals before the Timer1.DN turns on"""
+        printInline(f'Checking for GPS {Timer1.ACC:.2f}s/{Timer1.PRE}s')
+        scrnSplashNoAck.setDisplayText(f'Checking for GPS {Timer1.ACC:.2f}s/{Timer1.PRE}s')
+
         if Timer1.DN:
-            state = 0
+            """No GPS detected, Disable the scanning to avoid overhead and set flag"""
+            print('\nNo GPS packets detected, setting GPS state to OFF...')
+            enableGPS = False
+            scrnSplashScreen.setDisplayText('Warning No GPS signals detected.')
+            state = 9000
+        if gps.parsed_sentences != gps_sentenceCount:
+            """check to see if GPS is parsing sentences, if so maintain the GPS enabled"""
+            enableGPS = True
+            state = state_return
         # -___-___-___-___-
 
 
 def main():
     global state
     global SystemInitialized
+    global stringPot
+    global scrnRuntime
 
     while True:
         inputs()
@@ -568,7 +631,13 @@ def main():
         if state != laststate or not SystemInitialized:
             print(f'Main State: {state}')
             print(str(gc.mem_free()) + 'bytes')
+            print(scrnRuntime.items)
         SystemInitialized = True
+
+        """
+        print('1: ' + str(stringPot.value))
+        time.sleep(0.3)
+        """
 
 
 main()

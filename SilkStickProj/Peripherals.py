@@ -3,7 +3,9 @@ import time
 from adafruit_seesaw import seesaw, rotaryio, digitalio
 from adafruit_ht16k33 import ht16k33, segments
 import countio
+import analogio
 from digitalio import DigitalInOut, Direction, DriveMode, Pull
+
 
 class CharacterDisplay:
     def __init__(self, i2c):
@@ -26,6 +28,23 @@ class CharacterDisplay:
             self._decimalCount = dec
             self._display.print(self._message, self._decimalCount)
             self._display.show()
+
+
+class StringPot:
+    def __init__(self, pin):
+        self._input = analogio.AnalogIn(pin)
+        self._value = 0
+
+    def __call__(self, *args, **kwargs):
+        self.scan(*args, **kwargs)
+
+    def scan(self):
+        self._value = self._input.value
+
+    @property
+    def value(self):
+        self._value = self._input.value
+        return self._value
 
 
 class Button:
@@ -111,7 +130,8 @@ class Button:
 class SelectWheel:
     def __init__(self, i2c):
         self.rotaryEncoder = seesaw.Seesaw(i2c, addr=0x36)  # 0x36 is the default address for the rotary encoder
-        self.rotaryEncoder.pin_mode(24, self.rotaryEncoder.INPUT_PULLUP)  # Set the pinmode for pin 24 on the Encoder backpack tied to the center 'push/click' of the encoder button.
+        self.rotaryEncoder.pin_mode(24,
+                                    self.rotaryEncoder.INPUT_PULLUP)  # Set the pinmode for pin 24 on the Encoder backpack tied to the center 'push/click' of the encoder button.
         self._iEncoder_btn = digitalio.DigitalIO(self.rotaryEncoder, 24)  # assign a Digital IO class to the pin
         self._iEncoder_wheel = rotaryio.IncrementalEncoder(self.rotaryEncoder)
         self.last_position = -self._iEncoder_wheel.position

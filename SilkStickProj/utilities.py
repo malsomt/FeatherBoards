@@ -125,3 +125,49 @@ class Timer:
             self._PRE = pre
         else:
             raise TypeError("PRE must be a float of seconds.")
+
+
+class Scaling:
+    def __init__(self):
+        self._setup = {'eu_upr': 0, 'eu_lwr': 0, 'raw_upr': 0, 'raw_lwr': 0}
+        self._m = None
+        self._b = None
+
+    def __call__(self, *args, **kwargs):
+        return self.scale(*args, **kwargs)
+
+    def scale(self, x):
+        # use y= mx + b
+        # y = engineering unit
+        # x = raw unit
+        # m is scale/slope
+        # b is eng unit offset
+        # y = mx + b
+        return self._m * x + self._b
+
+    def _solve(self):
+        if self._m is None or self._b is None:
+            try:
+                # m = (y2 - y1)/(x2 - x1)
+                scl_m = (self._setup['eu_upr'] - self._setup['eu_lwr'])/(self._setup['raw_upr'] - self._setup['raw_lwr'])
+                # b = y - mx
+                scl_b = self._setup['eu_lwr'] - (self._m * self._setup['raw_lwr'])
+
+            except ZeroDivisionError or TypeError:
+                return False
+
+    @property
+    def setup(self):
+        return self._setup
+
+    @setup.setter
+    def setup(self, d):
+        if not isinstance(d, dict):
+            raise TypeError('Assigned value must be of type Dictionary')
+        # setter takes in dictionary and will update any valid keys
+        for key in d:
+            if key in self._setup:
+                if self._setup[key] != d[key]:
+                    self._setup[key] = d[key]
+            else:
+                raise KeyError(f'Key - "{key}" does not exist the scaling configuration.')

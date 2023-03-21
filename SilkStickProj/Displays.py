@@ -16,10 +16,11 @@ GRN = 0x00FF00
 
 
 class SplashScreen:
-    def __init__(self, screenName, defaultTextColor=WHT, defaultBackgroundColor=BLK):
+    def __init__(self, screenName, defaultTextColor=WHT, defaultBackgroundColor=BLK, ack=True):
         self.screenName = screenName
         self.defaultTextColor = defaultTextColor
         self.defaultBackgroundColor = defaultBackgroundColor
+        self.ack = ack
         self._buildDisplay()
 
     def _buildDisplay(self):
@@ -43,10 +44,10 @@ class SplashScreen:
                                              anchor_point=(0.5, 0.5), anchored_position=(120, 90),
                                              background_color=self.defaultBackgroundColor,
                                              color=self.defaultTextColor, padding_left=2))
-
-        self.displayItems.append(label.Label(font=terminalio.FONT, text='Press any Button to Acknowledge',
-                                             scale=1, anchor_point=(0.5, 1.0), anchored_position=(120, 130),
-                                             background_color=BLK, color=WHT, padding_left=1, padding_bottom=1))
+        if self.ack:  # Do not generate this message ack is not allowed
+            self.displayItems.append(label.Label(font=terminalio.FONT, text='Press any Button to Acknowledge',
+                                                 scale=1, anchor_point=(0.5, 1.0), anchored_position=(120, 130),
+                                                 background_color=BLK, color=WHT, padding_left=1, padding_bottom=1))
 
     def setDisplayText(self, text, color=None, bgcolor=None):
         color = color if color is not None else self.defaultTextColor
@@ -555,16 +556,16 @@ class Runtime:
 
     def editCW(self):
         key = self.displayItems[self.selectIndex].text[:-1]  # Ensure to strip ':' character from the label
-        self._displayItems[key] = self._displayItems[key] + 1  # Raw units increment by 1
+        self._items[key] = self._items[key] + 1  # Raw units increment by 1
 
-        self.displayItems[self.selectIndex + 1].text = str(self._displayItems[key])
+        self.displayItems[self.selectIndex + 1].text = str(self._items[key])
 
     def editCCW(self):
         key = self.displayItems[self.selectIndex].text[:-1]  # Ensure to strip ':' character from the label
-        if self._displayItems[key] >= 1:
-            self._displayItems[key] = self._displayItems[key] - 1  # Raw units increment by 1
+        if self._items[key] >= 1:
+            self._items[key] = self._items[key] - 1  # Raw units increment by 1
 
-        self.displayItems[self.selectIndex + 1].text = str(self._displayItems[key])
+        self.displayItems[self.selectIndex + 1].text = str(self._items[key])
 
 
 class GPSDetails:
