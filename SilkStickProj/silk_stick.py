@@ -16,6 +16,8 @@ Most variables will be globally scoped to the controller to maintain operations
 
 import time
 import adafruit_pcf8523
+import adafruit_ads1x15.ads1015 as ADS
+from adafruit_ads1x15.analog_in import AnalogIn
 import board
 import busio
 from adafruit_lc709203f import LC709203F, PackSize
@@ -25,7 +27,7 @@ from Menu import MenuScreen, NewLog, Config, Runtime, SplashScreen
 import gc
 import sdcardio
 import storage
-import os, os.path
+import os
 import GPS
 from utilities import LogFile, Timer, Scaling, printInline
 from digitalio import Pull
@@ -72,6 +74,10 @@ display = board.DISPLAY
 i2c = board.STEMMA_I2C()  # Use STEMMA or standard I2C if switching to the GPIO pins
 selectWheel = SelectWheel(i2c)
 rtc = adafruit_pcf8523.PCF8523(i2c)
+
+adc = ADS.ADS1015(i2c)  # Default Address 0x40
+adc.mode = ADS.Mode.CONTINUOUS  # Set ADC to sample continuously.
+strPot = AnalogIn(adc, ADS.P0)
 #battery_monitor = LC709203F(i2c)
 #battery_monitor.pack_size = PackSize.MAH3000
 
@@ -103,8 +109,6 @@ if sdcard is not None:
             
             Use Os.stat to get file info
 """
-
-
 
 
 def inputs():
@@ -634,10 +638,8 @@ def main():
             print(scrnRuntime.items)
         SystemInitialized = True
 
-        """
-        print('1: ' + str(stringPot.value))
+        print('1: ' + str(strPot.value)+ ', ' + str(strPot.voltage))
         time.sleep(0.3)
-        """
 
 
 main()
