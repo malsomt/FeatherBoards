@@ -1,12 +1,17 @@
 import time
 
 
+def printInline(mes):
+    """ Print the message in line by prepending a return carriage and change the newline ending to nothing """
+    return print('\r' + mes, end='')
+
+
 class LogFile:
     def __init__(self):
         self._filepath = '/sd'
         self._fileName = ''
         self._datafields = ['yyyymmdd', 'hhmmss', 'Row', 'Rng', 'Lat', 'Lon']
-        self.entrycount = 0
+        self._entryCount = 0
 
     @property
     def fileName(self):
@@ -17,7 +22,9 @@ class LogFile:
         if self._checkFormat(fn):
             filename = self._filepath + '/' + fn
             self._fileName = fn
-            self.entrycount = sum(1 for _ in open(filename)) - 1  # Grab number of entries in file
+            self._entryCount = sum(1 for _ in open(filename)) - 1  # Grab number of entries in file
+        else:
+            raise ValueError(self._filepath + '/' + fn)
 
     def CreateNewFile(self, fn):
         if self._checkFormat(fn):
@@ -42,23 +49,27 @@ class LogFile:
     def addEntry(self, info):
         """Receive Dictionary of log information and format it to a CSV"""
         try:
-            logstring = info['ymd'] + ',' + info['hms'] + ',' + info['Row'] + ',' + info['Rng'] + ',' +\
-                    info['Lat'] + ', ' + info['Lon']
+            logstring = info['ymd'] + ',' + info['hms'] + ',' + str(info['Row']) + ',' + str(info['Rng']) + ',' +\
+                    info['Lat'] + ', ' + info['Lon'] + '\n'
             with open(self._filepath + '/' + self._fileName, 'a') as file:
                 file.write(logstring)
         except OSError as oserr:  # Most likely no SD Card
             print(oserr)
             return False
-        self.entrycount = self.entrycount + 1  # increment the entry count manually
+        self._entryCount = self._entryCount + 1  # increment the entry count manually
         return True  # Return True if successful
 
     def removeLastEntry(self):
         """Attempt to remove the last line of the current csv file"""
         pass
 
+    @property
+    def entryCount(self):
+        return self._entryCount
+
 
 class Timer:
-    """Create a PLC type timer resembling a TON"""
+    """Create a PLC type timer resembling a TON function block from IEC 61131-3"""
     def __init__(self):
         self._EN = False  # enable
         self._DN = False  # done
@@ -129,7 +140,7 @@ class Timer:
 
 class Scaling:
     def __init__(self):
-        self._setup = {'eu_upr': 0, 'eu_lwr': 0, 'raw_upr': 0, 'raw_lwr': 0}
+        self._setup = {'Raw_Upr': 1000, 'Raw_Lwr': 0, 'Eng_Upr': 15, 'Eng_Lwr': 0}
         self._m = None
         self._b = None
 
@@ -143,15 +154,15 @@ class Scaling:
         # m is scale/slope
         # b is eng unit offset
         # y = mx + b
-        return self._m * x + self._b
+        return float(self._m * x + self._b)
 
     def _solve(self):
         if self._m is None or self._b is None:
             try:
                 # m = (y2 - y1)/(x2 - x1)
-                scl_m = (self._setup['eu_upr'] - self._setup['eu_lwr'])/(self._setup['raw_upr'] - self._setup['raw_lwr'])
+                self._m = (self._setup['eu_upr'] - self._setup['eu_lwr'])/(self._setup['raw_upr'] - self._setup['raw_lwr'])
                 # b = y - mx
-                scl_b = self._setup['eu_lwr'] - (self._m * self._setup['raw_lwr'])
+                self._b = self._setup['eu_lwr'] - (self._m * self._setup['raw_lwr'])
 
             except ZeroDivisionError or TypeError:
                 return False
@@ -171,3 +182,8 @@ class Scaling:
                     self._setup[key] = d[key]
             else:
                 raise KeyError(f'Key - "{key}" does not exist the scaling configuration.')
+        self._solve()  # Update scaling formula
+
+
+
+

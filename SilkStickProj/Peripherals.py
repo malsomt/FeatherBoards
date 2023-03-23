@@ -5,6 +5,8 @@ from adafruit_ht16k33 import ht16k33, segments
 import countio
 import analogio
 from digitalio import DigitalInOut, Direction, DriveMode, Pull
+import adafruit_ads1x15.ads1015 as ADS
+from adafruit_ads1x15.analog_in import AnalogIn
 
 
 class CharacterDisplay:
@@ -31,20 +33,27 @@ class CharacterDisplay:
 
 
 class StringPot:
-    def __init__(self, pin):
-        self._input = analogio.AnalogIn(pin)
+    def __init__(self, i2c):
+        self._ADS = ADS.ADS1015(i2c)  # Default Address 0x40
+        self._ADS.mode = ADS.Mode.CONTINUOUS  # Set the ADS device to continuous sample
+        self._device = AnalogIn(self._ADS, ADS.PO)  # Analog Channel A0
+        self._voltage = 0
         self._value = 0
 
     def __call__(self, *args, **kwargs):
         self.scan(*args, **kwargs)
 
     def scan(self):
-        self._value = self._input.value
+        self._voltage = self._device.voltage
+        self._value = self._device.value
 
     @property
     def value(self):
-        self._value = self._input.value
         return self._value
+
+    @property
+    def voltage(self):
+        return self._voltage
 
 
 class Button:

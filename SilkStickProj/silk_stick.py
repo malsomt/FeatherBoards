@@ -16,8 +16,6 @@ Most variables will be globally scoped to the controller to maintain operations
 
 import time
 import adafruit_pcf8523
-import adafruit_ads1x15.ads1015 as ADS
-from adafruit_ads1x15.analog_in import AnalogIn
 import board
 import busio
 from adafruit_lc709203f import LC709203F, PackSize
@@ -29,17 +27,15 @@ import sdcardio
 import storage
 import os
 import GPS
-from utilities import LogFile, Timer, Scaling, printInline
+from Utilities import LogFile, Timer, Scaling, printInline
 from digitalio import Pull
 
 import json
 
 # ---CONSTANTS---
-MAIN = 0
-SPLASH = 9000
-GPSCHECK = 10000
 
-# ---Global Setup---
+
+"""------Global Variable Setup------"""
 SystemInitialized = False
 enableGPS = False
 rtcSink = True
@@ -48,6 +44,8 @@ state = 0
 state_return = 0
 selectedMenu = ''
 selectedFile = ''
+selectedString = ''
+gps_sentenceCount = None
 navList = ['New Log', 'Continue Log', 'No Log', 'Config', 'Battery']
 quickStrings = ['file', 'row', 'range', 'field', 'Rng', 'Row', 'Eng']
 jsonConfig = {'Raw_Upr': 1000, 'Raw_Lwr': 0, 'Eng_Upr': 15, 'Eng_Lwr': 0}
@@ -55,6 +53,7 @@ newFileName = ''
 logger = LogFile()
 loggingData = {'ymd': '', 'hms': '', 'Row': 0, 'Rng': 0, 'Lat': '', 'Lon': ''}
 
+"""------Screen Setups------"""
 scrnMainMenu = MenuScreen('Main', navList)
 scrnDirList = None
 scrnNewLog = NewLog('New Log')
@@ -63,34 +62,47 @@ scrnConfig = Config('Config', jsonConfig)
 scrnRuntime = Runtime('Runtime')
 scrnSplashScreen = SplashScreen('SplashScreen')
 scrnSplashNoAck = SplashScreen('Splash No Ack', ack=False)
+"""------"""
 
 Timer1 = Timer()  # Create a global timer for simple delays
-
 Scaling = Scaling()  # Instantiate the scaling block
 
-selectedString = ''
-display = board.DISPLAY
+
+"""------I2C Setup------"""
 # seesaw is the pre-made firmware running the SAMD09U microcontroller used as the backbone for the rotary encoder board
 i2c = board.STEMMA_I2C()  # Use STEMMA or standard I2C if switching to the GPIO pins
-selectWheel = SelectWheel(i2c)
-rtc = adafruit_pcf8523.PCF8523(i2c)
+display = board.DISPLAY  # Integral TFT display 240 x 135
+try:
+    selectWheel = SelectWheel(i2c)
+except ValueError:
+    raise ValueError('Rotory Encoder Selection Wheel is not detected or address error has occurred.')
+try:
+    rtc = adafruit_pcf8523.PCF8523(i2c)
+except ValueError:
+    raise ValueError('Real Time Clock device is not detected or address error has occurred.')
+try:
+    stringPot = StringPot(i2c)
+except ValueError:
+    raise ValueError('ADC String-Pot device is not detected or address error has occurred.')
+try:
+    display2 = CharacterDisplay(i2c)
+except ValueError:
+    raise ValueError('7 segment character display device is not detected or address error has occurred.')
+"""------"""
 
-adc = ADS.ADS1015(i2c)  # Default Address 0x40
-adc.mode = ADS.Mode.CONTINUOUS  # Set ADC to sample continuously.
-strPot = AnalogIn(adc, ADS.P0)
 #battery_monitor = LC709203F(i2c)
 #battery_monitor.pack_size = PackSize.MAH3000
 
+"""------UART Setup------"""
 uart = busio.UART(board.TX, board.RX, baudrate=115200, timeout=0.1)
 gps = GPS.GPSParser()
+"""------"""
 
 btnGreen = Button(board.A3, pull=Pull.DOWN)
 btnRed = Button(board.A2, pull=Pull.DOWN)
-stringPot = StringPot(board.A0)
 
-display2 = CharacterDisplay(i2c)
-display2.message = 123.4, 1
-
+"""------Single Scan Startup Logic------"""
+"""------SD Card------"""
 try:
     sdcard = sdcardio.SDCard(board.SPI(), board.D10)
     vfs = storage.VfsFat(sdcard)
@@ -99,16 +111,15 @@ try:
 except OSError:
     print("No SD Card on SPI Bus...")
     sdcard = None
-"""
+"""-------JSON Config File------"""
 if sdcard is not None:
-    if os('/sd/config.json'):
-        try:
-            with open('/sd/config.json') as file:         
-                jsonConfig = json.loads(file)
-        except OSError:
-            
-            Use Os.stat to get file info
-"""
+    dir = os.listdir('/sd')
+    dir = list(filter(lambda i: i.endswith('.json'), dir))  # filter out files not ending '.json'
+    if len(dir) > 0:
+        with open(dir[0], 'r') as config:
+            jsonConfig = json.load(config)
+            Scaling.setup = jsonConfig
+"""-------"""
 
 
 def inputs():
@@ -127,16 +138,21 @@ def inputs():
     global Timer1
     global stringPot
     """-------"""
+
     """------Discrete Inputs------"""
     # Calling instance as a function defaults to an internal cyclical scan function
     selectWheel(longPressTime=0.5)
     btnGreen(longPressTime=0.4)
     btnRed(longPressTime=0.8)
 
+    """------I2C Analog Inputs------"""
+    stringPot()  # Cyclical update of internal vars
+    display2.message = (Scaling(stringPot.value), 2)  # Update lcd display to the string pot display
+
     """------Timers------"""
     Timer1()  # Cyclically scanned - Interface with .EN and .PRE similar to PLC
-    """------Gps Receiver Input------"""
 
+    """------Gps Receiver Input------"""
     if enableGPS:
         uartData = uart.read(16)
         if uartData is not None:
@@ -152,6 +168,7 @@ def inputs():
                                                          int(gps.datestamp[0]), int(gps.timestamp[0]),
                                                          int(gps.timestamp[1]), int(gps.timestamp[2][:2]), 0, -1, -1))
                         rtcSink = False
+    """------"""
 
     "Update the Dictionaries logger Info"
     t = rtc.datetime
@@ -638,7 +655,6 @@ def main():
             print(scrnRuntime.items)
         SystemInitialized = True
 
-        print('1: ' + str(strPot.value)+ ', ' + str(strPot.voltage))
         time.sleep(0.3)
 
 
