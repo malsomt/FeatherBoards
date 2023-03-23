@@ -655,7 +655,4 @@ def main():
             print(scrnRuntime.items)
         SystemInitialized = True
 
-        time.sleep(0.3)
-
-
 main()
