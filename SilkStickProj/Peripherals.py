@@ -13,7 +13,6 @@ class CharacterDisplay:
     def __init__(self, i2c):
         self._display = segments.Seg7x4(i2c)
         self._message = '0000'
-        self._decimalCount = 2
 
     @property
     def message(self):
@@ -22,13 +21,15 @@ class CharacterDisplay:
     @message.setter
     def message(self, input):
         try:
-            mes, dec = input
+            mes = input
         except TypeError:
             raise TypeError("Pass an iterable with two items (characters, decimal count)")
         else:
             self._message = mes
-            self._decimalCount = dec
-            self._display.print(self._message, self._decimalCount)
+            out = str(self._message)
+            if len(out) < 5:  # Avoid character shifting by adding a zero
+                out = '0' + out
+            self._display.print(out)
             self._display.show()
 
 
@@ -36,7 +37,7 @@ class StringPot:
     def __init__(self, i2c):
         self._ADS = ADS.ADS1015(i2c)  # Default Address 0x40
         self._ADS.mode = ADS.Mode.CONTINUOUS  # Set the ADS device to continuous sample
-        self._device = AnalogIn(self._ADS, ADS.PO)  # Analog Channel A0
+        self._device = AnalogIn(self._ADS, ADS.P0)  # Analog Channel A0
         self._voltage = 0
         self._value = 0
 

@@ -143,6 +143,7 @@ class Scaling:
         self._setup = {'Raw_Upr': 1000, 'Raw_Lwr': 0, 'Eng_Upr': 15, 'Eng_Lwr': 0}
         self._m = None
         self._b = None
+        self._solve()
 
     def __call__(self, *args, **kwargs):
         return self.scale(*args, **kwargs)
@@ -157,15 +158,15 @@ class Scaling:
         return float(self._m * x + self._b)
 
     def _solve(self):
-        if self._m is None or self._b is None:
-            try:
-                # m = (y2 - y1)/(x2 - x1)
-                self._m = (self._setup['eu_upr'] - self._setup['eu_lwr'])/(self._setup['raw_upr'] - self._setup['raw_lwr'])
-                # b = y - mx
-                self._b = self._setup['eu_lwr'] - (self._m * self._setup['raw_lwr'])
+        try:
+            # m = (y2 - y1)/(x2 - x1)
+            self._m = (self._setup['Eng_Upr'] - self._setup['Eng_Lwr'])/(self._setup['Raw_Upr'] - self._setup['Raw_Lwr'])
+            # b = y - mx
+            self._b = self._setup['Eng_Lwr'] - (self._m * self._setup['Raw_Lwr'])
+            print(f'Scaling Block Calculations M: {self._m}, B: {self._b}')
 
-            except ZeroDivisionError or TypeError:
-                return False
+        except ZeroDivisionError or TypeError:
+            return False
 
     @property
     def setup(self):
@@ -183,7 +184,4 @@ class Scaling:
             else:
                 raise KeyError(f'Key - "{key}" does not exist the scaling configuration.')
         self._solve()  # Update scaling formula
-
-
-
 

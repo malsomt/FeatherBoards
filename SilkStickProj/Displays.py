@@ -72,7 +72,7 @@ class SplashScreen:
         self.displayItems[0].color, self.displayItems[1].color, self.displayItems[2].color, self.displayItems[3].color =\
             color, color, color, color
         self.displayItems[0].bgcolor, self.displayItems[1].bgcolor, self.displayItems[2].bgcolor,\
-        self.displayItems[3].bgcolor = bgcolor, bgcolor, bgcolor, bgcolor
+            self.displayItems[3].bgcolor = bgcolor, bgcolor, bgcolor, bgcolor
 
     def getDisplayGroup(self):
         return self.displayItems

@@ -48,7 +48,7 @@ selectedString = ''
 gps_sentenceCount = None
 navList = ['New Log', 'Continue Log', 'No Log', 'Config', 'Battery']
 quickStrings = ['file', 'row', 'range', 'field', 'Rng', 'Row', 'Eng']
-jsonConfig = {'Raw_Upr': 1000, 'Raw_Lwr': 0, 'Eng_Upr': 15, 'Eng_Lwr': 0}
+jsonConfig = {'Raw_Upr': 25500, 'Raw_Lwr': 2000, 'Eng_Upr': 10, 'Eng_Lwr': 42}
 newFileName = ''
 logger = LogFile()
 loggingData = {'ymd': '', 'hms': '', 'Row': 0, 'Rng': 0, 'Lat': '', 'Lon': ''}
@@ -65,7 +65,8 @@ scrnSplashNoAck = SplashScreen('Splash No Ack', ack=False)
 """------"""
 
 Timer1 = Timer()  # Create a global timer for simple delays
-Scaling = Scaling()  # Instantiate the scaling block
+tmrdisplayDelay = Timer()
+scaling = Scaling()  # Instantiate the scaling block
 
 
 """------I2C Setup------"""
@@ -115,10 +116,15 @@ except OSError:
 if sdcard is not None:
     dir = os.listdir('/sd')
     dir = list(filter(lambda i: i.endswith('.json'), dir))  # filter out files not ending '.json'
+    print(f'Json Files: {dir}')
     if len(dir) > 0:
-        with open(dir[0], 'r') as config:
+        with open(f'/sd/{dir[0]}', 'r') as config:
             jsonConfig = json.load(config)
-            Scaling.setup = jsonConfig
+            scaling.setup = jsonConfig
+            print(f'Loading Config...{jsonConfig}')
+    else:
+        with open('/sd/config.json', 'w') as file:
+            json.dump(jsonConfig, file)
 """-------"""
 
 
@@ -136,8 +142,13 @@ def inputs():
     global rtcSink
     global enableGPS
     global Timer1
+    global tmrdisplayDelay
     global stringPot
     """-------"""
+
+    """------Timers------"""
+    Timer1()  # Cyclically scanned - Interface with .EN and .PRE similar to PLC
+    tmrdisplayDelay()
 
     """------Discrete Inputs------"""
     # Calling instance as a function defaults to an internal cyclical scan function
@@ -147,10 +158,17 @@ def inputs():
 
     """------I2C Analog Inputs------"""
     stringPot()  # Cyclical update of internal vars
-    display2.message = (Scaling(stringPot.value), 2)  # Update lcd display to the string pot display
-
-    """------Timers------"""
-    Timer1()  # Cyclically scanned - Interface with .EN and .PRE similar to PLC
+    if not tmrdisplayDelay.EN:
+        tmrdisplayDelay.PRE = 0.1
+        tmrdisplayDelay.EN = True
+    if tmrdisplayDelay.EN and tmrdisplayDelay.DN:
+        try:
+            displayVal = round(scaling(stringPot.value), 2)
+            printInline(str(displayVal))
+            display2.message = f'{displayVal:.2f}'  # Update lcd display to the string pot display
+        except ValueError:
+            display2.message = (99.99, 2)
+        tmrdisplayDelay.EN = False
 
     """------Gps Receiver Input------"""
     if enableGPS:
@@ -202,6 +220,7 @@ def sequence():
     global Timer1
     global enableGPS
     global gps_sentenceCount
+    global jsonConfig
 
     # Start State Logic Control
 
@@ -473,7 +492,7 @@ def sequence():
         if selectWheel.shortPress:
             state = 3020
         if selectWheel.longPress:
-            state = 0
+            state = 3200
         # -___-___-___-___-
 
     elif state == 3020:
@@ -489,22 +508,44 @@ def sequence():
         elif selectWheel.dwn:  # Encoder CCW
             scrnConfig.editCCW()
         if selectWheel.shortPress:
-            state = 3040
+            state = 3100
         if selectWheel.longPress:
-            pass
+            state = 3040
         # -___-___-___-___-
 
     elif state == 3040:
-        " Update JSON Config file "
-        pass
+        " If selected items allows, record value from reading"
+        scrnConfig.recordVal(stringPot.value)
         state = 3100
-        # -___-___-___-___-
 
     elif state == 3100:
         " Set update Done "
         scrnConfig.setEdit(False)
         state = 3010
         # -___-___-___-___-
+
+    elif state == 3200:
+        " Update JSON Config file "
+        jsonConfig = scrnConfig.config
+        state = 3300
+        # -___-___-___-___-
+
+    elif state == 3300:
+        " Write new values to json file in SD card "
+        try:
+            with open('/sd/config.json', 'w') as file:
+                json.dump(jsonConfig, file)
+            state = 3310
+        except OSError:
+            state_return = 0
+            scrnSplashScreen.setDisplayText('Unable to write out new params to SD card.')
+            state = 9000
+        # -___-___-___-___-
+
+    elif state == 3310:
+        " update the scaling block "
+        scaling.setup = jsonConfig
+        state = 0
 
     elif state == 4000:
         """ Open up Running Log Display """
@@ -652,7 +693,6 @@ def main():
         if state != laststate or not SystemInitialized:
             print(f'Main State: {state}')
             print(str(gc.mem_free()) + 'bytes')
-            print(scrnRuntime.items)
         SystemInitialized = True
 
 main()
