@@ -4,9 +4,9 @@ Author: Tyler Malsom
 Date: 05/2023
 Overview: Software to operate the "Silk Stick" apparatus that utilizes various inputs to measure height in conjunction
 with relevant information such as GPS and manual data input from operator.
-Scan Structure operate under principal
-Init --> Input --> Sequence
-           ^----------v
+Scan Structure operates under principal
+Init --> Input --> Sequence --> Output
+           ^----------------------v
 
 Most variables will be globally scoped to the controller to maintain operations
  as this code will operate single threaded.
@@ -18,10 +18,10 @@ import time
 import adafruit_pcf8523
 import board
 import busio
-from adafruit_lc709203f import LC709203F, PackSize
+from adafruit_max1704x import MAX17048
 import Menu
-from Peripherals import SelectWheel, CharacterDisplay, Button, StringPot
-from Menu import MenuScreen, NewLog, Config, Runtime, SplashScreen
+from Peripherals import SelectWheel, CharacterDisplay, Button, StringPot, Beeper
+from Menu import MenuScreen, NewLog, Config, Runtime, SplashScreen, GPSDetails
 import gc
 import sdcardio
 import storage
@@ -33,8 +33,6 @@ from digitalio import Pull
 import json
 
 # ---CONSTANTS---
-
-
 """------Global Variable Setup------"""
 SystemInitialized = False
 enableGPS = False
@@ -46,8 +44,8 @@ selectedMenu = ''
 selectedFile = ''
 selectedString = ''
 gps_sentenceCount = None
-navList = ['New Log', 'Continue Log', 'No Log', 'Config', 'Battery']
-quickStrings = ['file', 'row', 'range', 'field', 'Rng', 'Row', 'Eng']
+navList = ['New Log', 'Continue Log', 'Config', 'Battery']
+quickStrings = ['file', 'row', 'range', 'field', 'Rng', 'Row', 'Eng', 'Exp']
 jsonConfig = {'Raw_Upr': 25500, 'Raw_Lwr': 2000, 'Eng_Upr': 10, 'Eng_Lwr': 42}
 newFileName = ''
 logger = LogFile()
@@ -62,10 +60,13 @@ scrnConfig = Config('Config', jsonConfig)
 scrnRuntime = Runtime('Runtime')
 scrnSplashScreen = SplashScreen('SplashScreen')
 scrnSplashNoAck = SplashScreen('Splash No Ack', ack=False)
+scrnGPSDetails = GPSDetails('GPS Details')
 """------"""
 
-Timer1 = Timer()  # Create a global timer for simple delays
+tmrStandby = Timer()  # Create Timers globally to allow input and sequence usage
 tmrdisplayDelay = Timer()
+tmrGPSTimeout = Timer()
+tmrGPSDetailUpdate = Timer()
 scaling = Scaling()  # Instantiate the scaling block
 
 
@@ -90,17 +91,18 @@ try:
 except ValueError:
     raise ValueError('7 segment character display device is not detected or address error has occurred.')
 """------"""
-
-#battery_monitor = LC709203F(i2c)
-#battery_monitor.pack_size = PackSize.MAH3000
+"""
+battery_monitor = MAX17048(i2c)
+"""
 
 """------UART Setup------"""
 uart = busio.UART(board.TX, board.RX, baudrate=115200, timeout=0.1)
 gps = GPS.GPSParser()
 """------"""
 
-btnGreen = Button(board.A3, pull=Pull.DOWN)
-btnRed = Button(board.A2, pull=Pull.DOWN)
+btnGreen = Button(board.A2, pull=Pull.DOWN)
+btnRed = Button(board.A3, pull=Pull.DOWN)
+beeper = Beeper(board.A0)
 
 """------Single Scan Startup Logic------"""
 """------SD Card------"""
@@ -128,6 +130,12 @@ if sdcard is not None:
 """-------"""
 
 
+def outputs():
+    """Output Routine used for any cyclical output peripheral updates."""
+    global beeper
+    beeper()
+
+
 def inputs():
     """Input routine used for any cyclical scanning of I/O"""
     """Declare Global references below"""
@@ -141,14 +149,18 @@ def inputs():
     global rtc
     global rtcSink
     global enableGPS
-    global Timer1
+    global tmrStandby
     global tmrdisplayDelay
     global stringPot
+    global tmrGPSTimeout
+    global tmrGPSDetailUpdate
     """-------"""
 
     """------Timers------"""
-    Timer1()  # Cyclically scanned - Interface with .EN and .PRE similar to PLC
+    tmrStandby()  # Cyclically scanned - Interface with .EN and .PRE similar to PLC
     tmrdisplayDelay()
+    tmrGPSTimeout()
+    tmrGPSDetailUpdate()
 
     """------Discrete Inputs------"""
     # Calling instance as a function defaults to an internal cyclical scan function
@@ -166,6 +178,8 @@ def inputs():
             displayVal = round(scaling(stringPot.value), 2)
             printInline(str(displayVal))
             display2.message = f'{displayVal:.2f}'  # Update lcd display to the string pot display
+            loggingData['Height'] = f'{displayVal:.2f}'
+
         except ValueError:
             display2.message = (99.99, 2)
         tmrdisplayDelay.EN = False
@@ -174,6 +188,7 @@ def inputs():
     if enableGPS:
         uartData = uart.read(16)
         if uartData is not None:
+            tmrGPSTimeout.EN = False # reset timer
             uartData = ''.join([chr(b) for b in uartData])
             "Parse GPS data until a new message is complete"
             for char in uartData:
@@ -186,6 +201,10 @@ def inputs():
                                                          int(gps.datestamp[0]), int(gps.timestamp[0]),
                                                          int(gps.timestamp[1]), int(gps.timestamp[2][:2]), 0, -1, -1))
                         rtcSink = False
+        else:
+            tmrGPSTimeout.PRE = 3.0
+            tmrGPSTimeout.EN = True
+
     """------"""
 
     "Update the Dictionaries logger Info"
@@ -194,6 +213,10 @@ def inputs():
     loggingData['hms'] = f'{t.tm_hour}:{t.tm_min}:{t.tm_sec}'
     loggingData['Lat'] = gps.latitude if enableGPS else ''
     loggingData['Lon'] = gps.longitude if enableGPS else ''
+    loggingData['Lat_Maj'] = gps.latitude_list[0] if enableGPS else ''
+    loggingData['Lat_Min'] = gps.latitude_list[1] if enableGPS else ''
+    loggingData['Lon_Maj'] = gps.longitude_list[0] if enableGPS else ''
+    loggingData['Lon_Min'] = gps.longitude_list[1] if enableGPS else ''
 
 
 def sequence():
@@ -217,10 +240,13 @@ def sequence():
     global newFileName
     global logger
     global loggingData
-    global Timer1
+    global tmrStandby
+    global tmrGPSDetailUpdate
     global enableGPS
     global gps_sentenceCount
     global jsonConfig
+    global beeper
+    #global battery_monitor
 
     # Start State Logic Control
 
@@ -229,6 +255,7 @@ def sequence():
         " Display Main Menu "
         gc.collect()  # Run Garbage collection on memory
         display.show(scrnMainMenu.getDisplayGroup())
+        enableGPS = False
         state = 10
         # -___-___-___-___-
 
@@ -268,11 +295,11 @@ def sequence():
 
         if state == 30:
             " Set to Display Battery Info on Splash Screen "
-            """
-            displaytext1 = "Battery Percent: {:.2f} %".format(battery_monitor.cell_percent)
-            displaytext2 = "Battery Voltage: {:.2f} V".format(battery_monitor.cell_voltage)
-            scrnSplashScreen.setDisplayText(displaytext1 + '\n' + displaytext2, Menu.YEL)
-            """
+
+            #displaytext1 = "Battery Percent: {:.2f} %".format(battery_monitor.cell_percent)
+            #displaytext2 = "Battery Voltage: {:.2f} V".format(battery_monitor.cell_voltage)
+            #scrnSplashScreen.setDisplayText(displaytext1 + '\n' + displaytext2, Menu.YEL)
+
             scrnSplashScreen.setDisplayText('Feature is currently unavailable...', Menu.YEL)
             state_return = 0
             state = 9000
@@ -361,7 +388,10 @@ def sequence():
         state = 1300
         for file in files:
             if file == newFileName:  # check if filename exists
-                state = 99999999  # existing file found
+                scrnSplashScreen.setDisplayText('Error: File Name Already Exists...')  # existing file found
+                state_return = 1000
+                state = 9000
+                break
         # -___-___-___-___-
 
     elif state == 1300:
@@ -369,8 +399,9 @@ def sequence():
         if logger.CreateNewFile(newFileName):  # Returns True if successful
             state = 4000
         else:
-            # Something went wrong
-            state = 999999999999
+            scrnSplashScreen.setDisplayText('Failed to create ')  # existing file found
+            state_return = 1000
+            state = 9000
         # -___-___-___-___-
 
         """###### New_Log Screen Logic End ######"""
@@ -406,7 +437,9 @@ def sequence():
             state_return = 4000
             state = 10000
         else:
-            state = 999999
+            scrnSplashScreen.setDisplayText('Error occurred attempting to change the logger data...')
+            state_return = 0
+            state = 9000
         # -___-___-___-___-
 
         """###### Continue_Log Screen END ######"""
@@ -414,6 +447,8 @@ def sequence():
         """--------------------------------------"""
 
         """###### No_Log Screen Start ######"""
+        """REMOVED """
+        """
     elif state == 2000:
         display.show(scrnRuntime.getDisplayGroup())
         gc.collect()  # Run Garbage collection on memory
@@ -470,7 +505,7 @@ def sequence():
         scrnRuntime.setEdit(False)
         state = 2010
         # -___-___-___-___-
-
+    """
         """###### No_Log Screen END ######"""
 
         """--------------------------------------"""
@@ -478,6 +513,7 @@ def sequence():
         """###### Configuration Screen Start ######"""
     elif state == 3000:
         " Set the display screen "
+        scrnConfig.config = jsonConfig
         display.show(scrnConfig.getDisplayGroup())
         gc.collect()  # Run Garbage collection on memory
         state = 3010
@@ -490,7 +526,10 @@ def sequence():
         elif selectWheel.dwn:  # Encoder CCW
             scrnConfig.navCCW()
         if selectWheel.shortPress:
-            state = 3020
+            if scrnConfig.getSelected() == 'Cancel':
+                state = 0
+            else:
+                state = 3020
         if selectWheel.longPress:
             state = 3200
         # -___-___-___-___-
@@ -526,7 +565,7 @@ def sequence():
 
     elif state == 3200:
         " Update JSON Config file "
-        jsonConfig = scrnConfig.config
+        jsonConfig = scrnConfig._config
         state = 3300
         # -___-___-___-___-
 
@@ -551,32 +590,36 @@ def sequence():
         """ Open up Running Log Display """
         scrnRuntime.items = {'File': logger.fileName, 'Entry': logger.entryCount}  # Update FileName
         display.show(scrnRuntime.getDisplayGroup())
+        enableGPS = True
         gc.collect()
         state = 4010
         # -___-___-___-___-
 
     elif state == 4010:
-        "Cyclically update displayed Info"
-        if loggingData['Lat'] != scrnRuntime.items['Lat'] or loggingData['Lon'] != scrnRuntime.items['Lon']:
-            scrnRuntime.items = {'Lat': loggingData['Lat'], 'Lon': loggingData['Lon']}
-
-        " Monitor the encoder wheel inputs for navigation "
-        " Monitor Record Buttons for info grabbing"
-        if selectWheel.up:  # Encoder CW
-            scrnRuntime.navCW()
-        elif selectWheel.dwn:  # Encoder CCW
-            scrnRuntime.navCCW()
-        if selectWheel.shortPress:
-            if scrnRuntime.getSelected() == 'GPS':
-                state = 4040  # Go to GPS Detail Screen
-            else:
-                state = 4020  # Go to Edit Mode
-        if selectWheel.longPress:
-            state = 0
-        if btnGreen.shortPress:
-            state = 4200
-        elif btnRed.longPress:
-            state = 4300
+        if not tmrGPSTimeout.DN:
+            "Cyclically update displayed Info"
+            if loggingData['Lat'] != scrnRuntime.items['Lat'] or loggingData['Lon'] != scrnRuntime.items['Lon']:
+                scrnRuntime.items = {'GPS': gps.fix_stat}
+            " Monitor the encoder wheel inputs for navigation "
+            " Monitor Record Buttons for info grabbing"
+            if selectWheel.up:  # Encoder CW
+                scrnRuntime.navCW()
+            elif selectWheel.dwn:  # Encoder CCW
+                scrnRuntime.navCCW()
+            if selectWheel.shortPress:
+                if scrnRuntime.getSelected() == 'GPS':
+                    state = 4040  # Go to GPS Detail Screen
+                else:
+                    state = 4020  # Go to Edit Mode
+            if selectWheel.longPress:
+                state = 0
+            if btnGreen.shortPress:
+                state = 4200
+            elif btnRed.longPress:
+                state = 4300
+        else:
+            gps.fix_stat = 0
+            state = 10000
         # -___-___-___-___-
 
     elif state == 4020:
@@ -598,16 +641,24 @@ def sequence():
         # -___-___-___-___-
 
     elif state == 4040:
-        " Bring up GPS Details Screen"
+        "Bring up Runtime screen"
         gc.collect()
-        display.show(scrnRuntime.getDisplayGroup())
+        display.show(scrnGPSDetails.getDisplayGroup())
         state = 4050
         # -___-___-___-___-
 
     elif state == 4050:
-        pass
-        """if selectWheel.shortPress or selectWheel.longPress:"""
-        state = 4000
+        "Cyclically Update display info, monitor for input"
+        if not tmrGPSDetailUpdate.DN:
+            tmrGPSDetailUpdate.PRE = 1.0
+            tmrGPSDetailUpdate.EN = True
+        else:
+            tmrGPSDetailUpdate.EN = False
+            scrnGPSDetails.updateDisplay(gps)
+        if selectWheel.shortPress:
+            state = 4000
+        if selectWheel.longPress:
+            state = 4000
         # -___-___-___-___-
 
     elif state == 4100:
@@ -619,7 +670,7 @@ def sequence():
         # -___-___-___-___-
 
     elif state == 4200:
-        " Sample the current entry  "
+        " Sample the current entry "
         if logger.addEntry(loggingData):
             scrnRuntime.items = {'Entry': logger.entryCount}
             state = 4210
@@ -630,8 +681,18 @@ def sequence():
         # -___-___-___-___-
 
     elif state == 4210:
-        " Do something for Confirmation "
-        """"Make a beep, flash a light...do something"""
+        " Short tone for confirmation "
+        beeper.beep(duration=0.10)  # beep...
+        state = 4010
+        # -___-___-___-___-
+
+    elif state == 4300:
+        logger.removeLastEntry()
+        state = 4310
+
+    elif state == 4310:
+        " Long tone for confirmation "
+        beeper.beep(duration=0.3)  # beeeeeep...
         state = 4010
         # -___-___-___-___-
 
@@ -660,17 +721,18 @@ def sequence():
 
     elif state == 10010:
         "Wait for serial log data to update"
-        Timer1.PRE = 10
-        Timer1.EN = True  # Hold Timer True to Time
+        tmrStandby.PRE = 6
+        tmrStandby.EN = True  # Hold Timer True to Time
         """Check for GPS signals before the Timer1.DN turns on"""
-        printInline(f'Checking for GPS {Timer1.ACC:.2f}s/{Timer1.PRE}s')
-        scrnSplashNoAck.setDisplayText(f'Checking for GPS {Timer1.ACC:.2f}s/{Timer1.PRE}s')
+        printInline(f'Checking for GPS {tmrStandby.ACC:.2f}s/{tmrStandby.PRE}s')
+        scrnSplashNoAck.setDisplayText(f'Checking for GPS {tmrStandby.ACC:.2f}s/{tmrStandby.PRE}s')
 
-        if Timer1.DN:
+        if tmrStandby.DN:
             """No GPS detected, Disable the scanning to avoid overhead and set flag"""
             print('\nNo GPS packets detected, setting GPS state to OFF...')
             enableGPS = False
-            scrnSplashScreen.setDisplayText('Warning No GPS signals detected.')
+            scrnSplashScreen.setDisplayText('Warning! No GPS signals detected.')
+            state_return = 0
             state = 9000
         if gps.parsed_sentences != gps_sentenceCount:
             """check to see if GPS is parsing sentences, if so maintain the GPS enabled"""
@@ -686,13 +748,18 @@ def main():
     global scrnRuntime
 
     while True:
-        inputs()
         laststate = state
+        """INPUT -- SEQUENCE -- OUTPUT"""
+        inputs()
         if SystemInitialized:
             sequence()
+        outputs()
+        """INPUT -- SEQUENCE -- OUTPUT"""
+
         if state != laststate or not SystemInitialized:
             print(f'Main State: {state}')
             print(str(gc.mem_free()) + 'bytes')
         SystemInitialized = True
+
 
 main()

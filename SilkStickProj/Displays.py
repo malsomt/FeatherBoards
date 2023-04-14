@@ -1,12 +1,14 @@
 import terminalio
 from adafruit_display_text import label, scrolling_label
 import displayio
+from GPS import GPSParser
 
 WHT = 0xFFFFFF
 BLK = 0x000000
 GRY = 0x555555
 YEL = 0xFFFF00
 GRN = 0x00FF00
+RED = 0xFF0000
 
 '''Concept of the Menu Navigation screen is as follows.
 ---Use the navUp and Dwn functions to increment the displayed menu items
@@ -69,10 +71,10 @@ class SplashScreen:
 
         self.displayItems[0].text, self.displayItems[1].text, self.displayItems[2].text, self.displayItems[3].text = \
             line0, line1, line2, line3
-        self.displayItems[0].color, self.displayItems[1].color, self.displayItems[2].color, self.displayItems[3].color =\
+        self.displayItems[0].color, self.displayItems[1].color, self.displayItems[2].color, self.displayItems[3].color = \
             color, color, color, color
-        self.displayItems[0].bgcolor, self.displayItems[1].bgcolor, self.displayItems[2].bgcolor,\
-            self.displayItems[3].bgcolor = bgcolor, bgcolor, bgcolor, bgcolor
+        self.displayItems[0].bgcolor, self.displayItems[1].bgcolor, self.displayItems[2].bgcolor, \
+        self.displayItems[3].bgcolor = bgcolor, bgcolor, bgcolor, bgcolor
 
     def getDisplayGroup(self):
         return self.displayItems
@@ -94,9 +96,10 @@ class MenuScreen:
         return self.displayItems
 
     def updateMenu(self):
-        self.displayItems[0].text = self.navList[self.selectIndex-1] if self.selectIndex != 0 else ''
+        self.displayItems[0].text = self.navList[self.selectIndex - 1] if self.selectIndex != 0 else ''
         self.displayItems[1].text = self.navList[self.selectIndex]
-        self.displayItems[2].text = self.navList[self.selectIndex+1] if self.selectIndex <= len(self.navList)-2 else ''
+        self.displayItems[2].text = self.navList[self.selectIndex + 1] if self.selectIndex <= len(
+            self.navList) - 2 else ''
 
     def navCCW(self):
         index = self.selectIndex
@@ -199,7 +202,7 @@ class NewLog:
         return self.displayItems
 
     def navCW(self):
-        if self.selectIndex >= len(self.displayItems)-1:
+        if self.selectIndex >= len(self.displayItems) - 1:
             self.selectIndex = 3  # Loop back to first selectable item
         else:
             self.selectIndex = self.selectIndex + 1
@@ -263,7 +266,7 @@ class NewLog:
         return chr(num)
 
     def addChar(self):
-        #fileString = str(self.displayItems[0].text).replace('.txt', '')
+        # fileString = str(self.displayItems[0].text).replace('.txt', '')
         fileString = self.fileString
         newchar = self._charUpdate(self.displayItems[3].text, 0)
         self.displayItems[0].text = fileString + newchar + '.txt'
@@ -285,10 +288,10 @@ class NewLog:
 
 
 class Config:
-    def __init__(self, screenName, config,  defaultColor_text=GRY, defaultColor_bg=BLK,
+    def __init__(self, screenName, config, defaultColor_text=GRY, defaultColor_bg=BLK,
                  highlightColor_text=BLK, highlightColor_bg=WHT):
         self.screenName = screenName
-        self.config = config  # Config should be dict passed of vales editable in this screen
+        self._config = config  # Config should be dict passed of vales editable in this screen
         self.selectIndex = 0
         self.defaultColor_text = defaultColor_text
         self.defaultColor_bg = defaultColor_bg
@@ -303,47 +306,59 @@ class Config:
         self.displayItems = displayio.Group()
         y = 5  # Top of screen start point
         _y = 22  # Spacing
-        keys = list(sorted(self.config.keys()))
+        keys = list(sorted(self._config.keys()))
+        self._address = {}
         # Build out the display text and graphics for initialization
         """0"""
         self.displayItems.append(label.Label(font=terminalio.FONT, text=keys[0],
                                              scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y),
                                              background_color=BLK, color=GRY, padding_left=1))
         """1"""
-        self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self.config[keys[0]]),
+        self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self._config[keys[0]]),
                                              scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y),
                                              background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
+        self._address[self.displayItems[0].text] = 1
         """2"""
         self.displayItems.append(label.Label(font=terminalio.FONT, text=keys[1],
-                                             scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y+(_y*1)),
+                                             scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y + (_y * 1)),
                                              background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
         """3"""
-        self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self.config[keys[1]]),
-                                             scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y+(_y*1)),
+        self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self._config[keys[1]]),
+                                             scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y + (_y * 1)),
                                              background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
+        self._address[self.displayItems[2].text] = 3
+
         """4"""
         self.displayItems.append(label.Label(font=terminalio.FONT, text=keys[2],
-                                             scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y+(_y*2)),
+                                             scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y + (_y * 2)),
                                              background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
         """5"""
-        self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self.config[keys[2]]),
-                                             scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y+(_y*2)),
+        self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self._config[keys[2]]),
+                                             scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y + (_y * 2)),
                                              background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
+        self._address[self.displayItems[4].text] = 5
+
         """6"""
         self.displayItems.append(label.Label(font=terminalio.FONT, text=keys[3],
-                                             scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y+(_y*3)),
+                                             scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y + (_y * 3)),
                                              background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
         """7"""
-        self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self.config[keys[3]]),
-                                             scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y+(_y*3)),
+        self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self._config[keys[3]]),
+                                             scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y + (_y * 3)),
                                              background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
+        self._address[self.displayItems[6].text] = 7
+
         """8"""
+        self.displayItems.append(label.Label(font=terminalio.FONT, text='Cancel',
+                                             scale=2, anchor_point=(0.5, 0.0), anchored_position=(120, y + (_y * 4)),
+                                             background_color=BLK, color=RED, padding_left=0, padding_bottom=1))
+        """9"""
         self.displayItems.append(label.Label(font=terminalio.FONT, text='Press = Select || Hold = Save & Exit',
                                              scale=1, anchor_point=(0.5, 1.0), anchored_position=(120, 130),
                                              background_color=BLK, color=WHT, padding_left=1, padding_bottom=1))
 
-        self.selectableItems = len(self.displayItems)-3  # get a length of the group list that is navigable
-        self.helpLabelIndex = len(self.displayItems)-1  # Get the index of the quick help label
+        self.selectableItems = len(self.displayItems) - 2  # get a length of the group list that is navigable
+        self.helpLabelIndex = len(self.displayItems) - 1  # Get the index of the quick help label
 
     def _updateNavHighlight(self):
         # Reset all backgrounds to default
@@ -383,30 +398,59 @@ class Config:
             self.displayItems[self.selectIndex].color = GRN
             self.displayItems[self.selectIndex + 1].background_color = GRY
             self.displayItems[self.selectIndex + 1].color = GRN
-
-            self.displayItems[self.helpLabelIndex].text = 'Press = Save & Exit'
+            key = self.displayItems[self.selectIndex].text
+            if key == 'Raw_Upr' or key == 'Raw_Lwr':
+                self.displayItems[self.helpLabelIndex].text = 'Press = Save & Exit || Hold = Poll Sensor'
+            else:
+                self.displayItems[self.helpLabelIndex].text = 'Press = Save & Exit'
 
         else:
             self._updateNavHighlight()
             self.displayItems[self.helpLabelIndex].text = 'Press = Select || Hold = Save & Exit'
 
-    def editCW(self):
+    def editCW(self):  # Function looks to selected option and increments on a fixed value
         key = self.displayItems[self.selectIndex].text
         if key == 'Eng_Upr' or key == 'Eng_Lwr':
-            self.config[key] = self.config[key] + .125  # Engineering units increment by 1/8
+            self._config[key] = self._config[key] + .125  # Engineering units increment by 1/8
         else:
-            self.config[key] = self.config[key] + 1  # Raw units increment by 1
+            self._config[key] = self._config[key] + 1  # Raw units increment by 1
 
-        self.displayItems[self.selectIndex + 1].text = str(self.config[key])
+        self._updateDisplay(key)
 
-    def editCCW(self):
+    def editCCW(self):  # Function looks to selected option and increments on a fixed value
         key = self.displayItems[self.selectIndex].text
         if key == 'Eng_Upr' or key == 'Eng_Lwr':
-            self.config[key] = self.config[key] - .125  # Engineering units increment by 1/8
+            self._config[key] = self._config[key] - .125  # Engineering units increment by 1/8
         else:
-            self.config[key] = self.config[key] - 1  # Raw units increment by 1
+            self._config[key] = self._config[key] - 1  # Raw units increment by 1
 
-        self.displayItems[self.selectIndex + 1].text = str(self.config[key])
+        self._updateDisplay(key)
+
+    def recordVal(self, value):  # Function looks to selected option and records the sent value if valid
+        key = self.displayItems[self.selectIndex].text
+        if key == 'Raw_Upr' or key == 'Raw_Lwr':
+            self._config[key] = value
+
+        self._updateDisplay(key)
+
+    def _updateDisplay(self, key):
+        self.displayItems[self._address[key]].text = str(self._config[key])
+
+    def getSelected(self):
+        return self.displayItems[self.selectIndex].text
+
+    @property
+    def config(self):
+        return self._config
+
+    @config.setter
+    def config(self, d):
+        if not isinstance(d, dict):
+            raise TypeError('passed data must be of type dictionary')
+        for key in d:
+            if self._config[key] != d[key]:
+                self._config[key] = d[key]
+                self._updateDisplay(key)
 
 
 class Runtime:
@@ -417,7 +461,7 @@ class Runtime:
         """Dictionaries return no particular order, declaring labels must be done statically"""
         self._items = {'Lat': '', 'Lon': '', 'File': 'example.txt', 'Row': 0, 'Rng': 0, 'Entry': 0, 'GPS': ''}
         """Address book for display items in order to access the displayGroups to update values"""
-        self._address = {'Lat': 0, 'Lon': 0, 'File': 0, 'Row': 0, 'Rng': 0, 'Entry': 0, 'GPS': 0}
+        self._address = {}  # Built dynamically in the screen config
         self.selectIndex = 6
         self.defaultColor_text = defaultColor_text
         self.defaultColor_bg = defaultColor_bg
@@ -438,7 +482,7 @@ class Runtime:
             if key in self._items:
                 if self._items[key] != d[key]:
                     self._items[key] = d[key]
-                    #Use Address of display group item to find appropriate text to edit for the Key label
+                    # Use Address of display group item to find appropriate text to edit for the Key label
                     self.displayItems[self._address[key]].text = str(self._items[key])
             else:
                 print(f'Key - "{key}" does not exist in the runtime screen.')
@@ -455,47 +499,52 @@ class Runtime:
                                              scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y),
                                              background_color=BLK, color=WHT, padding_left=1))
         """1"""
-        self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self._items[self.displayItems[0].text[:-1]]),
-                                             scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y),
-                                             background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
+        self.displayItems.append(
+            label.Label(font=terminalio.FONT, text=str(self._items[self.displayItems[0].text[:-1]]),
+                        scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y),
+                        background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
         self._address[self.displayItems[0].text[:-1]] = 1
 
         """2"""
         self.displayItems.append(label.Label(font=terminalio.FONT, text='Entry:',
-                                             scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y+(_y*1)),
-                                             background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
+                                             scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y + (_y * 1)),
+                                             background_color=BLK, color=RED, padding_left=1, padding_bottom=1))
         """3"""
-        self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self._items[self.displayItems[2].text[:-1]]),
-                                             scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y+(_y*1)),
-                                             background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
+        self.displayItems.append(
+            label.Label(font=terminalio.FONT, text=str(self._items[self.displayItems[2].text[:-1]]),
+                        scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y + (_y * 1)),
+                        background_color=BLK, color=RED, padding_left=1, padding_bottom=1))
         self._address[self.displayItems[2].text[:-1]] = 3
 
         """4"""
         self.displayItems.append(label.Label(font=terminalio.FONT, text='Row:',
-                                             scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y+(_y*2)),
+                                             scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y + (_y * 2)),
                                              background_color=BLK, color=YEL, padding_left=1, padding_bottom=1))
         """5"""
-        self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self._items[self.displayItems[4].text[:-1]]),
-                                             scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y+(_y*2)),
-                                             background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
+        self.displayItems.append(
+            label.Label(font=terminalio.FONT, text=str(self._items[self.displayItems[4].text[:-1]]),
+                        scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y + (_y * 2)),
+                        background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
         self._address[self.displayItems[4].text[:-1]] = 5
         """6"""
         self.displayItems.append(label.Label(font=terminalio.FONT, text='Rng:',
                                              scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y + (_y * 3)),
                                              background_color=BLK, color=YEL, padding_left=1, padding_bottom=1))
         """7"""
-        self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self._items[self.displayItems[6].text[:-1]]),
-                                             scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y + (_y * 3)),
-                                             background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
+        self.displayItems.append(
+            label.Label(font=terminalio.FONT, text=str(self._items[self.displayItems[6].text[:-1]]),
+                        scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y + (_y * 3)),
+                        background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
         self._address[self.displayItems[6].text[:-1]] = 7
         """8"""
         self.displayItems.append(label.Label(font=terminalio.FONT, text='GPS:',
                                              scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y + (_y * 4)),
                                              background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
         """9"""
-        self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self._items[self.displayItems[8].text[:-1]]),
-                                             scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y + (_y * 4)),
-                                             background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
+        self.displayItems.append(
+            label.Label(font=terminalio.FONT, text=str(self._items[self.displayItems[8].text[:-1]]),
+                        scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y + (_y * 4)),
+                        background_color=BLK, color=WHT, padding_left=1, padding_bottom=1))
         self._address[self.displayItems[8].text[:-1]] = 9
         """10"""
         self.displayItems.append(label.Label(font=terminalio.FONT, text='Press = Select || Hold = Exit',
@@ -503,7 +552,7 @@ class Runtime:
                                              background_color=BLK, color=WHT, padding_left=1, padding_bottom=1))
 
         self.selectableItems = (4, 8)  # tuple indicates selectable limits
-        self.helpLabelIndex = len(self.displayItems)-1  # Get the index of the quick help label
+        self.helpLabelIndex = len(self.displayItems) - 1  # Get the index of the quick help label
 
     def _updateNavHighlight(self):
         # Reset all backgrounds to default
@@ -572,15 +621,15 @@ class GPSDetails:
     def __init__(self, screenName):
         self.screenName = screenName
         self.static_offset = 13  # spacing for display items
-        self.gpsData = {'Lat': '', 'Lon': '', 'Status': '', 'Rx Msg Count': 0, }
+        self.items = {'Lat': '', 'Lon': '', 'Fix': '', 'Msg Count': 0, 'Time': ''}
         # Build menu display
         self._buildDisplay()
-        self._updateNavHighlight()
 
     def _buildDisplay(self):
         self.displayItems = displayio.Group()
         y = 5  # Top of screen start point
         _y = 22  # Spacing
+        self._address = {}
         # Build out the display text and graphics for initialization
         """0"""
         self.displayItems.append(label.Label(font=terminalio.FONT, text='Lat:',
@@ -590,51 +639,65 @@ class GPSDetails:
         self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self.items[self.displayItems[0].text[:-1]]),
                                              scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y),
                                              background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
+        self._address[self.displayItems[0].text[:-1]] = 1
+
         """2"""
-        self.displayItems.append(label.Label(font=terminalio.FONT, text='Lon',
-                                             scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y+(_y*1)),
-                                             background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
+        self.displayItems.append(label.Label(font=terminalio.FONT, text='Lon:',
+                                             scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y + (_y * 1)),
+                                             background_color=BLK, color=WHT, padding_left=1, padding_bottom=1))
         """3"""
         self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self.items[self.displayItems[2].text[:-1]]),
-                                             scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y+(_y*1)),
+                                             scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y + (_y * 1)),
                                              background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
+        self._address[self.displayItems[2].text[:-1]] = 3
+
         """4"""
-        self.displayItems.append(label.Label(font=terminalio.FONT, text='Status:',
-                                             scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y+(_y*2)),
-                                             background_color=BLK, color=YEL, padding_left=1, padding_bottom=1))
+        self.displayItems.append(label.Label(font=terminalio.FONT, text='Fix:',
+                                             scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y + (_y * 2)),
+                                             background_color=BLK, color=WHT, padding_left=1, padding_bottom=1))
         """5"""
         self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self.items[self.displayItems[4].text[:-1]]),
-                                             scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y+(_y*2)),
+                                             scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y + (_y * 2)),
                                              background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
+        self._address[self.displayItems[4].text[:-1]] = 5
         """6"""
-        self.displayItems.append(label.Label(font=terminalio.FONT, text='RX Msg Count:',
+        self.displayItems.append(label.Label(font=terminalio.FONT, text='Msg Count:',
                                              scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y + (_y * 3)),
-                                             background_color=BLK, color=YEL, padding_left=1, padding_bottom=1))
+                                             background_color=BLK, color=WHT, padding_left=1, padding_bottom=1))
         """7"""
         self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self.items[self.displayItems[6].text[:-1]]),
                                              scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y + (_y * 3)),
                                              background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
+        self._address[self.displayItems[6].text[:-1]] = 7
         """8"""
-        self.displayItems.append(label.Label(font=terminalio.FONT, text='Date/Time:',
+        self.displayItems.append(label.Label(font=terminalio.FONT, text='Time:',
                                              scale=2, anchor_point=(0.0, 0.0), anchored_position=(2, y + (_y * 4)),
-                                             background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
+                                             background_color=BLK, color=WHT, padding_left=1, padding_bottom=1))
         """9"""
         self.displayItems.append(label.Label(font=terminalio.FONT, text=str(self.items[self.displayItems[8].text[:-1]]),
                                              scale=2, anchor_point=(1.0, 0.0), anchored_position=(238, y + (_y * 4)),
                                              background_color=BLK, color=GRY, padding_left=1, padding_bottom=1))
+        self._address[self.displayItems[8].text[:-1]] = 9
+
         """10"""
-        self.displayItems.append(label.Label(font=terminalio.FONT, text='Hold = Exit',
+        self.displayItems.append(label.Label(font=terminalio.FONT, text='Press = Exit',
                                              scale=1, anchor_point=(0.5, 1.0), anchored_position=(120, 130),
                                              background_color=BLK, color=WHT, padding_left=1, padding_bottom=1))
 
         self.selectableItems = [4, 8]  # tuple indicates selectable limits
-        self.helpLabelIndex = len(self.displayItems)-1  # Get the index of the quick help label
+        self.helpLabelIndex = len(self.displayItems) - 1  # Get the index of the quick help label
 
+    def getDisplayGroup(self):
+        # Function returns the DisplayGroup for the Board.Display.show() function
+        return self.displayItems
 
-    """def updateGPSData(self, gps):
-        gps = GPS.GPSParser()
-        self.displayItems[] gps.latitude
-        gps.longitude
-        gps.timestamp
-        gps.parsed_sentences"""
-
+    def updateDisplay(self, gps):
+        if isinstance(gps, GPSParser):
+            self.displayItems[self._address['Lat']].text = gps.latitude
+            self.displayItems[self._address['Lon']].text = gps.longitude
+            self.displayItems[self._address['Fix']].text = gps.fix_stat
+            self.displayItems[self._address['Msg Count']].text = str(gps.parsed_sentences)
+            self.displayItems[self._address['Time']].text = gps.timestamp[0] + ':' + gps.timestamp[1] + ':' + \
+                                                            gps.timestamp[2]
+        else:
+            raise TypeError('Object type passed to screen must be type "GPSParser"')

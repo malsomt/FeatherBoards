@@ -1,3 +1,4 @@
+import os
 import time
 
 
@@ -10,7 +11,8 @@ class LogFile:
     def __init__(self):
         self._filepath = '/sd'
         self._fileName = ''
-        self._datafields = ['yyyymmdd', 'hhmmss', 'Row', 'Rng', 'Lat', 'Lon']
+        self._datafields = ['yyyymmdd', 'hhmmss', 'Row', 'Rng', 'Lat', 'Lon', 'Height',
+                            'Lat_Maj', 'Lat_Min', 'Lon_Maj', 'Lon_Min']
         self._entryCount = 0
 
     @property
@@ -33,6 +35,7 @@ class LogFile:
                 header = ''
                 for i in self._datafields:
                     header = header + i + ','
+                header = header + '\n'
                 file.write(header)
             self.fileName = fn
             return True
@@ -49,8 +52,9 @@ class LogFile:
     def addEntry(self, info):
         """Receive Dictionary of log information and format it to a CSV"""
         try:
-            logstring = info['ymd'] + ',' + info['hms'] + ',' + str(info['Row']) + ',' + str(info['Rng']) + ',' +\
-                    info['Lat'] + ', ' + info['Lon'] + '\n'
+            logstring = info['ymd'] + ',' + info['hms'] + ',' + str(info['Row']) + ',' + str(info['Rng']) + ',' + \
+                        info['Lat'] + ', ' + info['Lon'] + ', ' + info['Height'] + ', ' + info['Lat_Maj'] + \
+                        ', ' + info['Lat_Min'] + ', ' + info['Lon_Maj'] + ', ' + info['Lon_Min'] + '\n'
             with open(self._filepath + '/' + self._fileName, 'a') as file:
                 file.write(logstring)
         except OSError as oserr:  # Most likely no SD Card
@@ -60,8 +64,36 @@ class LogFile:
         return True  # Return True if successful
 
     def removeLastEntry(self):
-        """Attempt to remove the last line of the current csv file"""
-        pass
+        if self._entryCount < 1:  # Only delete if capable
+            return True  # Pretend you did it
+        try:
+            with open(self._filepath + '/' + self._fileName, "r+") as file:
+                # Move the pointer (similar to a cursor in a text editor) to the end of the file
+                # Circuitpython os lib does not include os.SEEK_SET = 0, os.SEEK_CUR = 1, os.SEEK_END = 2
+                file.seek(0, 2)  # would be seen as file.seek(0, os.SEEK_END)
+
+                # This code means the following code skips the very last character in the file -
+                # i.e. in the case the last line is null we delete the last line
+                # and the penultimate one
+                pos = file.tell() - 1
+
+                # Read each character in the file one at a time from the penultimate
+                # character going backwards, searching for a newline character
+                # If we find a new line, exit the search
+                while pos > 0 and file.read(1) != "\n":
+                    pos -= 1
+                    file.seek(pos, 0)
+
+                # So long as we're not at the start of the file, delete all the characters ahead of this position
+                if pos > 0:
+                    file.seek(pos, 0)
+                    file.writelines('')
+        except OSError as oserr:
+            print(oserr)
+            return False
+
+        self._entryCount = self._entryCount - 1  # increment the entry count manually
+        return True
 
     @property
     def entryCount(self):
@@ -70,6 +102,7 @@ class LogFile:
 
 class Timer:
     """Create a PLC type timer resembling a TON function block from IEC 61131-3"""
+
     def __init__(self):
         self._EN = False  # enable
         self._DN = False  # done
@@ -160,7 +193,8 @@ class Scaling:
     def _solve(self):
         try:
             # m = (y2 - y1)/(x2 - x1)
-            self._m = (self._setup['Eng_Upr'] - self._setup['Eng_Lwr'])/(self._setup['Raw_Upr'] - self._setup['Raw_Lwr'])
+            self._m = (self._setup['Eng_Upr'] - self._setup['Eng_Lwr']) / (
+                        self._setup['Raw_Upr'] - self._setup['Raw_Lwr'])
             # b = y - mx
             self._b = self._setup['Eng_Lwr'] - (self._m * self._setup['Raw_Lwr'])
             print(f'Scaling Block Calculations M: {self._m}, B: {self._b}')
@@ -184,4 +218,3 @@ class Scaling:
             else:
                 raise KeyError(f'Key - "{key}" does not exist the scaling configuration.')
         self._solve()  # Update scaling formula
-

@@ -7,6 +7,49 @@ import analogio
 from digitalio import DigitalInOut, Direction, DriveMode, Pull
 import adafruit_ads1x15.ads1015 as ADS
 from adafruit_ads1x15.analog_in import AnalogIn
+from Utilities import Timer
+
+
+class Beeper:
+    def __init__(self, pin, drive=DriveMode.PUSH_PULL):
+        self.val = DigitalInOut(pin)
+        self.val.switch_to_output(False, drive)
+        self._enabled = False
+        self._timer = Timer()
+        self._state = 0
+        self._start = False
+
+    def __call__(self, *args, **kwargs):
+        self.scan(*args, **kwargs)
+
+    def scan(self):
+        self._timer()  # scan timer evaluation
+        #  Use no elif's to allow single scan start.
+        if self._state == 0:
+            if self._start:
+                self._state = 10
+        if self._state == 10:
+            self._start = False  # reset start
+            self._timer.EN = True   # start timer
+            self.val.value = True  # set output
+            self._state = 20
+        if self._state == 20:
+            if self._timer.DN:
+                self._state = 30
+            else:
+                self._timer.EN = True  # maintain timer enabled
+        if self._state == 30:
+            self._timer.EN = False  # disable timer, allows reset
+            self.val.value = False  # reset output pin
+            self._state = 0
+
+    def beep(self, duration=0.3):
+        if not self._start:
+            if isinstance(duration, float) or isinstance(duration, int):
+                self._start = True
+                self._timer.PRE = duration
+            else:
+                raise TypeError('Function("beep") "time" param must be of type integer ot float in seconds')
 
 
 class CharacterDisplay:

@@ -1,8 +1,9 @@
 class GPSParser(object):
-    """Most of this code is a stripped version of the microPyGPS library.
+    """
     In an order to streamline the size and speed of the library for running on the ESP32 M5 Stack device,
     functionality has been reduced and GPS coordinates will remain as ASCII strings due to the ESP32's Double precision
-    float limits"""
+    float limits
+    """
     # Max Number of Characters a valid sentence can be (based on GGA sentence)
     SENTENCE_LIMIT = 90
     __HEMISPHERES = ('N', 'S', 'E', 'W')
@@ -52,7 +53,7 @@ class GPSParser(object):
         self.pdop = ''
         self.vdop = ''
         self.valid = False
-        self.fix_stat = 0
+        self._fix_stat = 0
         self.fix_type = 1
 
     @property
@@ -60,13 +61,21 @@ class GPSParser(object):
         """Format Latitude Data Correctly"""
         """Return as ASCII string only due to ESP32 limit"""
 
-        return self._latitude[0] + self._latitude[1] + self._latitude[2]
+        return self._latitude[0] + ' ' + self._latitude[1] + ' ' + self._latitude[2]
+
+    @property
+    def latitude_list(self):
+        return [self._latitude[0], self._latitude[1], self._latitude[2]]
 
     @property
     def longitude(self):
         """Format Longitude Data Correctly"""
         """Return as ASCII string only due to ESP32 limit"""
-        return self._longitude[0] + self._longitude[1] + self._longitude[2]
+        return self._longitude[0] + ' ' + self._longitude[1] + ' ' + self._longitude[2]
+
+    @property
+    def longitude_list(self):
+        return [self._longitude[0], self._longitude[1], self._longitude[2]]
 
     @property
     def timestamp(self):
@@ -78,11 +87,35 @@ class GPSParser(object):
         """Day, Month , Year"""
         return self._datestamp
 
+    @property
+    def fix_stat(self):
+        """ Fix Status returns a String for display"""
+        if self._fix_stat == 0:
+            return 'NO_FIX'
+        elif self._fix_stat == 1:
+            return 'FIX-AUTO'
+        elif self._fix_stat == 2:
+            return 'FIX-DIF'
+        elif self._fix_stat == 4:
+            return 'FIX-RTK'
+        elif self._fix_stat == 5:
+            return 'FIX-RTK'
+        else:
+            return ''
+
+    @fix_stat.setter
+    def fix_stat(self, i):
+        if not isinstance(i, int):
+            raise TypeError('fix_stat var mut be of type int')
+        else:
+            self._fix_stat = i
+
     @staticmethod
     def unsupported():
         return False
 
     def gpgga(self):
+
         """Parse Global Positioning System Fix Data (GGA) Sentence. Updates UTC timestamp, latitude, longitude,
         fix status, satellites in use, Horizontal Dilution of Precision (HDOP), altitude, geoid height and fix status"""
 
@@ -158,7 +191,7 @@ class GPSParser(object):
         self._timestamp = [hours, minutes, seconds]
         self.satellites_in_use = satellites_in_use
         self.hdop = hdop
-        self.fix_stat = fix_stat
+        self._fix_stat = fix_stat
         return True
 
     def gpzda(self):
